@@ -1,0 +1,150 @@
+import React, { useContext } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useNavigation, CommonActions } from '@react-navigation/native';
+import Icon from 'react-native-vector-icons/Feather';
+import { GlassCard, Button } from '../components';
+import { NavigationProp } from '../types';
+import { AppContext } from '../context/AppContext';
+import { ICON_STYLE } from '../constants';
+
+export const SettingsScreen: React.FC = () => {
+    const navigation = useNavigation<NavigationProp>();
+    const { resetChat } = useContext(AppContext);
+
+    const handleLogout = () => {
+        resetChat();
+        navigation.dispatch(
+            CommonActions.reset({
+                index: 0,
+                routes: [{ name: 'Welcome' }],
+            })
+        );
+    };
+
+    return (
+        <SafeAreaView style={styles.container} edges={['top']}>
+            {/* Header */}
+            <View style={styles.header}>
+                <TouchableOpacity
+                    style={styles.backButton}
+                    onPress={() => navigation.goBack()}
+                >
+                    <Icon name="arrow-left" size={24} color="#94A3B8" style={ICON_STYLE} />
+                </TouchableOpacity>
+                <Text style={styles.headerTitle}>Settings</Text>
+                <View style={styles.placeholder} />
+            </View>
+
+            <View style={styles.content}>
+                <GlassCard style={styles.settingsCard}>
+                    <TouchableOpacity style={styles.settingsItem}>
+                        <View style={styles.settingsLeft}>
+                            <Icon name="shield" size={20} color="#60A5FA" style={ICON_STYLE} />
+                            <Text style={styles.settingsText}>Privacy Policy</Text>
+                        </View>
+                        <Icon name="chevron-right" size={16} color="#64748B" />
+                    </TouchableOpacity>
+
+                    <View style={styles.divider} />
+
+                    <TouchableOpacity style={styles.settingsItem}>
+                        <View style={styles.settingsLeft}>
+                            <Icon name="help-circle" size={20} color="#60A5FA" style={ICON_STYLE} />
+                            <Text style={styles.settingsText}>Help & Support</Text>
+                        </View>
+                        <Icon name="chevron-right" size={16} color="#64748B" />
+                    </TouchableOpacity>
+
+                    <View style={styles.divider} />
+
+                    <View style={[styles.settingsItem, styles.versionItem]}>
+                        <Text style={styles.versionLabel}>App Version</Text>
+                        <Text style={styles.versionValue}>v1.0.4 (Beta)</Text>
+                    </View>
+                </GlassCard>
+
+                <Button
+                    variant="danger"
+                    onPress={handleLogout}
+                    style={styles.logoutButton}
+                >
+                    <Icon name="log-out" size={18} color="#EF4444" /> Log Out
+                </Button>
+            </View>
+        </SafeAreaView>
+    );
+};
+
+const styles = StyleSheet.create({
+    container: {
+        flex: 1,
+        backgroundColor: '#020617',
+    },
+    header: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        padding: 16,
+        borderBottomWidth: 1,
+        borderBottomColor: 'rgba(255, 255, 255, 0.05)',
+        backgroundColor: 'rgba(15, 23, 42, 0.5)',
+    },
+    backButton: {
+        width: 44,
+        height: 44,
+        borderRadius: 22,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    headerTitle: {
+        fontSize: 20,
+        fontWeight: '700',
+        color: '#FFFFFF',
+    },
+    placeholder: {
+        width: 44,
+    },
+    content: {
+        padding: 24,
+    },
+    settingsCard: {
+        borderRadius: 16,
+        overflow: 'hidden',
+        marginBottom: 32,
+    },
+    settingsItem: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        padding: 16,
+    },
+    settingsLeft: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12,
+    },
+    settingsText: {
+        fontSize: 16,
+        color: '#CBD5E1',
+    },
+    divider: {
+        height: 1,
+        backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    },
+    versionItem: {
+        backgroundColor: 'rgba(0, 0, 0, 0.2)',
+    },
+    versionLabel: {
+        fontSize: 14,
+        color: '#64748B',
+    },
+    versionValue: {
+        fontSize: 14,
+        color: '#94A3B8',
+        fontFamily: 'monospace',
+    },
+    logoutButton: {
+        marginTop: 16,
+    },
+});
