@@ -1,258 +1,178 @@
-import React, { useState, useRef } from 'react';
-import { View, StyleSheet, TouchableOpacity, Text, Linking, ActivityIndicator } from 'react-native';
-import { WebView, WebViewNavigation } from 'react-native-webview';
+/**
+ * YouTubePlayer — Upgraded to react-native-youtube-iframe
+ * 
+ * CRITICAL: This is the SINGLE global player instance.
+ * It receives its state from PlayerContext and reports back
+ * via onStateChange/onProgress callbacks.
+ * 
+ * Replaces the old WebView-based implementation for:
+ * - Better playback control
+ * - Progress tracking
+ * - Synced audio/video mode
+ */
+
+import React, { useCallback, useRef, forwardRef, useImperativeHandle } from 'react';
+import { View, StyleSheet, TouchableOpacity, Text, ActivityIndicator } from 'react-native';
+import YTPlayer from 'react-native-youtube-iframe';
 import Icon from 'react-native-vector-icons/Feather';
 
 interface YouTubePlayerProps {
   videoId: string;
   height?: number;
   autoplay?: boolean;
+  isPlaying?: boolean;
+  onStateChange?: (state: string) => void;
+  onProgress?: (currentTime: number, duration: number) => void;
+  onError?: () => void;
 }
 
-export const YouTubePlayer: React.FC<YouTubePlayerProps> = ({
+export interface YouTubePlayerRef {
+  seekTo: (seconds: number) => void;
+}
+
+export const YouTubePlayer = forwardRef<YouTubePlayerRef, YouTubePlayerProps>(({
   videoId,
   height = 200,
-  autoplay = false
-}) => {
-  const playerHeight = height;
-  const [hasError, setHasError] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
-  const webViewRef = useRef<WebView>(null);
+  autoplay = false,
+  isPlaying = true,
+  onStateChange,
+  onProgress,
+  onError,
+}, ref) => {
+  const playerRef = useRef<any>(null);
+  const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const [hasError, setHasError] = React.useState(false);
+  const [isLoading, setIsLoading] = React.useState(true);
 
-  const youtubeAppUrl = `https://www.youtube.com/watch?v=${videoId}`;
+  // Track playback progress by polling the player's current time
+  const startProgressTracking = useCallback(() => {
+    if (intervalRef.current) clearInterval(intervalRef.current);
 
-  const openInBrowser = () => {
-    Linking.openURL(youtubeAppUrl);
-  };
+    intervalRef.current = setInterval(async () => {
+      if (playerRef.current && onProgress) {
+        try {
+          const currentTime = await playerRef.current.getCurrentTime();
+          const duration = await playerRef.current.getDuration();
+          onProgress(currentTime, duration);
+        } catch {}
+      }
+    }, 1000); // Poll every second
+  }, [onProgress]);
 
-  // Custom HTML with YouTube IFrame API - prevents navigation away
-  const htmlContent = `
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        html, body { 
-            width: 100%; 
-            height: 100%; 
-            background: #000; 
-            overflow: hidden;
-        }
-        #player {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-        }
-        .play-button {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            width: 68px;
-            height: 48px;
-            background: #FF0000;
-            border-radius: 12px;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            z-index: 10;
-        }
-        .play-button::after {
-            content: '';
-            border-style: solid;
-            border-width: 10px 0 10px 18px;
-            border-color: transparent transparent transparent #fff;
-            margin-left: 4px;
-        }
-        .thumbnail {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-        }
-        #player-container {
-            position: relative;
-            width: 100%;
-            height: 100%;
-        }
-        iframe {
-            width: 100%;
-            height: 100%;
-            border: none;
-        }
-    </style>
-</head>
-<body>
-    <div id="player-container">
-        <img class="thumbnail" id="thumbnail" src="https://img.youtube.com/vi/${videoId}/hqdefault.jpg" alt="Video thumbnail">
-        <div class="play-button" id="play-btn"></div>
-        <div id="player" style="display: none;"></div>
-    </div>
-    
-    <script>
-        var player;
-        var isPlaying = false;
-        
-        // Load YouTube IFrame API
-        var tag = document.createElement('script');
-        tag.src = "https://www.youtube.com/iframe_api";
-        var firstScriptTag = document.getElementsByTagName('script')[0];
-        firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
-        
-        function onYouTubeIframeAPIReady() {
-            // API is ready
-        }
-        
-        function createPlayer() {
-            document.getElementById('thumbnail').style.display = 'none';
-            document.getElementById('play-btn').style.display = 'none';
-            document.getElementById('player').style.display = 'block';
-            
-            player = new YT.Player('player', {
-                videoId: '${videoId}',
-                playerVars: {
-                    'autoplay': 1,
-                    'playsinline': 1,
-                    'rel': 0,
-                    'modestbranding': 1,
-                    'controls': 1,
-                    'fs': 1,
-                    'origin': 'https://localhost'
-                },
-                events: {
-                    'onReady': function(event) {
-                        event.target.playVideo();
-                    },
-                    'onError': function(event) {
-                        window.ReactNativeWebView.postMessage('error:' + event.data);
-                    }
-                }
-            });
-        }
-        
-        document.getElementById('play-btn').addEventListener('click', function() {
-            createPlayer();
-        });
-        
-        document.getElementById('thumbnail').addEventListener('click', function() {
-            createPlayer();
-        });
-        
-        ${autoplay ? 'setTimeout(createPlayer, 500);' : ''}
-    </script>
-</body>
-</html>
-    `;
-
-  // Prevent navigation to external URLs - block YouTube app/website redirects
-  const handleNavigationStateChange = (navState: WebViewNavigation) => {
-    const url = navState.url || '';
-
-    // Block YouTube app intents and watch URLs
-    if (url.includes('youtube.com/watch') ||
-      url.includes('youtu.be/') ||
-      url.startsWith('intent://') ||
-      url.startsWith('vnd.youtube://') ||
-      url.includes('youtube.com/redirect')) {
-      webViewRef.current?.stopLoading();
-      webViewRef.current?.goBack();
-      return false;
+  const stopProgressTracking = useCallback(() => {
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
     }
-    return true;
-  };
+  }, []);
 
-  const handleShouldStartLoadWithRequest = (request: any) => {
-    const url = request.url || '';
-
-    // Block YouTube app intents and direct YouTube links
-    if (url.includes('youtube.com/watch') ||
-      url.includes('youtu.be/') ||
-      url.startsWith('intent://') ||
-      url.startsWith('vnd.youtube://') ||
-      url.includes('youtube.com/redirect') ||
-      url.includes('/channel/') ||
-      url.includes('/user/')) {
-      return false;
+  // Expose methods to the parent via ref
+  useImperativeHandle(ref, () => ({
+    seekTo: (seconds: number) => {
+      if (playerRef.current) {
+        playerRef.current.seekTo(seconds, true);
+        // Optimistically update progress to make UI feel snappier
+        if (onProgress) {
+          playerRef.current.getDuration().then((d: number) => onProgress(seconds, d)).catch(() => {});
+        }
+      }
     }
+  }), [onProgress]);
 
-    // Allow only essential YouTube resources
-    if (url.includes('youtube.com/embed') ||
-      url.includes('youtube.com/iframe_api') ||
-      url.includes('youtube.com/s/player') ||
-      url.includes('ytimg.com') ||
-      url.includes('yt3.ggpht.com') ||
-      url.startsWith('about:') ||
-      url.startsWith('data:') ||
-      url.includes('googlevideo.com') ||
-      url.includes('googleusercontent.com') ||
-      url.includes('gstatic.com') ||
-      url.includes('googleapis.com')) {
-      return true;
+  // Handle YouTube player state changes
+  const handleStateChange = useCallback((state: string) => {
+    onStateChange?.(state);
+
+    switch (state) {
+      case 'playing':
+        setIsLoading(false);
+        startProgressTracking();
+        break;
+      case 'paused':
+      case 'ended':
+        stopProgressTracking();
+        break;
+      case 'buffering':
+        setIsLoading(true);
+        break;
     }
+  }, [onStateChange, startProgressTracking, stopProgressTracking]);
 
-    // Block everything else
-    return false;
-  };
+  const handleError = useCallback(() => {
+    setHasError(true);
+    stopProgressTracking();
+    onError?.();
+  }, [onError, stopProgressTracking]);
+
+  const handleReady = useCallback(() => {
+    setIsLoading(false);
+  }, []);
+
+  // Cleanup interval on unmount
+  React.useEffect(() => {
+    return () => stopProgressTracking();
+  }, [stopProgressTracking]);
 
   if (hasError) {
     return (
-      <View style={[styles.container, { height: playerHeight }, styles.errorContainer]}>
+      <View style={[styles.container, { height }, styles.errorContainer]}>
         <Icon name="play-circle" size={40} color="#EF4444" />
         <Text style={styles.errorText}>Video couldn't load</Text>
-        <TouchableOpacity style={styles.openButton} onPress={openInBrowser}>
-          <Icon name="external-link" size={16} color="#FFFFFF" />
-          <Text style={styles.openButtonText}>Open in YouTube</Text>
+        <TouchableOpacity
+          style={styles.retryButton}
+          onPress={() => setHasError(false)}
+        >
+          <Icon name="refresh-cw" size={16} color="#FFFFFF" />
+          <Text style={styles.retryButtonText}>Retry</Text>
         </TouchableOpacity>
       </View>
     );
   }
 
   return (
-    <View style={[styles.container, { height: playerHeight }]}>
+    <View style={[styles.container, { height }]}>
       {isLoading && (
         <View style={styles.loadingOverlay}>
-          <ActivityIndicator size="large" color="#EF4444" />
+          <ActivityIndicator size="large" color="#3B82F6" />
         </View>
       )}
-      <WebView
-        ref={webViewRef}
-        source={{ html: htmlContent, baseUrl: 'https://localhost' }}
-        style={styles.webview}
-        javaScriptEnabled={true}
-        domStorageEnabled={true}
-        allowsFullscreenVideo={true}
-        mediaPlaybackRequiresUserAction={false}
-        scrollEnabled={false}
-        allowsInlineMediaPlayback={true}
-        mixedContentMode="always"
-        originWhitelist={['*']}
-        onLoadEnd={() => setIsLoading(false)}
-        onError={() => setHasError(true)}
-        onNavigationStateChange={handleNavigationStateChange}
-        onShouldStartLoadWithRequest={handleShouldStartLoadWithRequest}
-        onMessage={(event) => {
-          if (event.nativeEvent.data.startsWith('error:')) {
-            setHasError(true);
-          }
+      <YTPlayer
+        ref={playerRef}
+        videoId={videoId}
+        height={height}
+        play={isPlaying}
+        onChangeState={handleStateChange}
+        onError={handleError}
+        onReady={handleReady}
+        webViewProps={{
+          // Prevent navigation away from the player
+          onShouldStartLoadWithRequest: (request: any) => {
+            const url = request.url || '';
+            // Block direct YouTube links that would open browser
+            if (url.includes('youtube.com/watch') || url.includes('youtu.be/')) {
+              return false;
+            }
+            return true;
+          },
+          // Keep only essential webview props
+          allowsInlineMediaPlayback: true,
+          mediaPlaybackRequiresUserAction: false,
         }}
-        userAgent="Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.120 Mobile Safari/537.36"
+        initialPlayerParams={{
+          autoplay: autoplay ? 1 : 0,
+          modestbranding: true,
+          rel: false,
+          preventFullScreen: false,
+        }}
       />
-      {/* Quick access button to open in YouTube app */}
-      <TouchableOpacity style={styles.youtubeButton} onPress={openInBrowser}>
-        <Icon name="external-link" size={14} color="#FFFFFF" />
-      </TouchableOpacity>
     </View>
   );
-};
+});
 
-// Helper function to extract YouTube video ID from URL
+/**
+ * Helper: Extract YouTube video ID from a full URL.
+ * Supports youtube.com/watch?v=, youtu.be/, and embed URLs.
+ */
 export const extractYouTubeId = (url: string): string | null => {
   const regExp = /^.*((youtu.be\/)|(v\/)|(\/u\/\w\/)|(embed\/)|(watch\?))\??v?=?([^#&?]*).*/;
   const match = url.match(regExp);
@@ -267,10 +187,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#000',
     position: 'relative',
   },
-  webview: {
-    flex: 1,
-    backgroundColor: '#000',
-  },
   errorContainer: {
     justifyContent: 'center',
     alignItems: 'center',
@@ -280,16 +196,16 @@ const styles = StyleSheet.create({
     color: '#94A3B8',
     fontSize: 14,
   },
-  openButton: {
+  retryButton: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    backgroundColor: '#EF4444',
+    backgroundColor: '#3B82F6',
     paddingHorizontal: 16,
     paddingVertical: 10,
     borderRadius: 20,
   },
-  openButtonText: {
+  retryButtonText: {
     color: '#FFFFFF',
     fontSize: 14,
     fontWeight: '600',
@@ -304,16 +220,5 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: '#000',
     zIndex: 10,
-  },
-  youtubeButton: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
-    justifyContent: 'center',
-    alignItems: 'center',
   },
 });

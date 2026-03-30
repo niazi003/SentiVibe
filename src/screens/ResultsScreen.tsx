@@ -1,4 +1,12 @@
-import React, { useState, useContext } from 'react';
+/**
+ * ResultsScreen — Mood-based recommendations
+ * 
+ * REFACTORED: Now fetches real data from the backend API,
+ * with loading skeletons and fallback to hardcoded data.
+ * Connects to PlayerContext for global playback control.
+ */
+
+import React, { useState, useContext, useEffect, useCallback } from 'react';
 import {
     View,
     Text,
@@ -9,16 +17,17 @@ import {
     LayoutAnimation,
     Platform,
     UIManager,
-    Linking
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/Feather';
 import LinearGradient from 'react-native-linear-gradient';
-import { GlassCard, YouTubePlayer, extractYouTubeId } from '../components';
+import { GlassCard, YouTubePlayer, extractYouTubeId, TrackListSkeleton } from '../components';
 import { NavigationProp, RootStackParamList, MediaItem } from '../types';
-import { RECOMMENDATIONS, ICON_STYLE } from '../constants';
+import { FALLBACK_RECOMMENDATIONS, ICON_STYLE } from '../constants';
 import { AppContext } from '../context/AppContext';
+import { usePlayer } from '../context/PlayerContext';
+import { fetchRecommendations } from '../services/api';
 
 // Enable LayoutAnimation for Android
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -31,26 +40,107 @@ export const ResultsScreen: React.FC = () => {
     const navigation = useNavigation<NavigationProp>();
     const route = useRoute<ResultsRouteProp>();
     const { emotion, initialTab } = route.params;
-    const { chatHistory, setChatHistory, toggleFavorite, isFavorite } = useContext(AppContext);
+    const { toggleFavorite, isFavorite } = useContext(AppContext);
+    const { playTrack } = usePlayer();
 
     const [activeTab] = useState(initialTab);
     const [expandedTrailerId, setExpandedTrailerId] = useState<number | null>(null);
-    const data = RECOMMENDATIONS[emotion] || RECOMMENDATIONS['Happy'];
+
+    // API state
+    const [tracks, setTracks] = useState<MediaItem[]>([]);
+    const [isLoading, setIsLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+    const [isOffline, setIsOffline] = useState(false);
+
+    /**
+     * Fetch recommendations from backend API.
+     * Falls back to hardcoded data if API is unreachable.
+     */
+    const loadRecommendations = useCallback(async () => {
+        // Movies are always from hardcoded data (no Spotify integration for movies)
+        if (activeTab === 'Movie') {
+            const fallback = FALLBACK_RECOMMENDATIONS[emotion] || FALLBACK_RECOMMENDATIONS['Happy'];
+            setTracks(fallback.Movie);
+            setIsLoading(false);
+            return;
+        }
+
+        setIsLoading(true);
+        setError(null);
+
+        try {
+            const response = await fetchRecommendations(emotion, 10);
+
+            if (response.data && response.data.length > 0) {
+                // Map API response to MediaItem format
+                const mapped: MediaItem[] = response.data.map((track) => ({
+                    id: track.id,
+                    title: track.title,
+                    artist: track.artist,
+                    duration: track.duration,
+                    cover: track.cover || track.albumArt,
+                    videoId: track.videoId,
+                    videoUrl: track.videoUrl || undefined,
+                    spotifyId: track.spotifyId,
+                    albumArt: track.albumArt,
+                    durationMs: track.durationMs,
+                    type: activeTab,
+                }));
+
+                setTracks(mapped);
+                setIsOffline(!!response.error); // Show offline badge if using cached data
+
+                if (response.error) {
+                    setError(response.error);
+                }
+            } else {
+                // Fall back to hardcoded data
+                console.warn('[Results] API returned no data, using fallback');
+                useFallbackData();
+            }
+        } catch (err: any) {
+            console.error('[Results] Fetch failed:', err);
+            useFallbackData();
+        } finally {
+            setIsLoading(false);
+        }
+    }, [emotion, activeTab]);
+
+    const useFallbackData = () => {
+        const fallback = FALLBACK_RECOMMENDATIONS[emotion] || FALLBACK_RECOMMENDATIONS['Happy'];
+        const items = activeTab === 'Music' ? fallback.Music : fallback.Video;
+        setTracks(items as MediaItem[]);
+        setIsOffline(true);
+        setError('Using offline mode');
+    };
+
+    // Fetch data on mount and when emotion/tab changes
+    useEffect(() => {
+        loadRecommendations();
+    }, [loadRecommendations]);
 
     const toggleTrailer = (itemId: number) => {
         LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
         setExpandedTrailerId(expandedTrailerId === itemId ? null : itemId);
     };
 
+    /**
+     * Play a track — dispatches to global PlayerContext
+     * and navigates to the PlayerScreen.
+     */
     const handlePlay = (item: MediaItem) => {
-        const list = data[activeTab] || [];
+        const list = tracks;
         const index = list.findIndex(i => i.id === item.id);
         const nextItems = list.slice(index + 1).map(i => ({ ...i, type: activeTab }));
+        const currentItem = { ...item, type: activeTab };
+
+        // Set global player state BEFORE navigating
+        playTrack(currentItem, nextItems);
 
         navigation.navigate('Player', {
-            item: { ...item, type: activeTab },
+            item: currentItem,
             queue: nextItems,
-            type: activeTab
+            type: activeTab,
         });
     };
 
@@ -102,124 +192,147 @@ export const ResultsScreen: React.FC = () => {
                 </TouchableOpacity>
 
                 <View style={styles.divider} />
-                <Text style={styles.description}>
-                    Showing <Text style={styles.descriptionBold}>{activeTab}</Text> recommendations for you.
-                </Text>
+
+                {/* Status indicator */}
+                <View style={styles.statusRow}>
+                    <Text style={styles.description}>
+                        Showing <Text style={styles.descriptionBold}>{activeTab}</Text> recommendations
+                    </Text>
+                    {isOffline && (
+                        <View style={styles.offlineBadge}>
+                            <Icon name="wifi-off" size={12} color="#F59E0B" />
+                            <Text style={styles.offlineText}>Offline</Text>
+                        </View>
+                    )}
+                </View>
             </View>
 
-            {/* Content */}
-            <ScrollView
-                style={styles.scrollView}
-                contentContainerStyle={styles.content}
-                showsVerticalScrollIndicator={false}
-            >
-                {data[activeTab]?.map((item) => (
-                    <GlassCard key={item.id} style={styles.itemCard}>
-                        {activeTab === 'Movie' ? (
-                            /* Movie Card Layout - Beautified */
-                            <View style={styles.movieCard}>
-                                {/* Movie Poster & Info */}
-                                <View style={styles.movieHeader}>
-                                    <Image
-                                        source={{ uri: item.cover }}
-                                        style={styles.moviePoster}
-                                    />
-                                    <View style={styles.movieInfo}>
-                                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                                            <Text style={[styles.movieTitle, { flex: 1 }]} numberOfLines={2}>{item.title}</Text>
-                                            <TouchableOpacity
-                                                style={styles.movieFavBtn}
-                                                onPress={() => toggleFavorite({ ...item, type: activeTab })}
-                                            >
-                                                <Icon
-                                                    name="heart"
-                                                    size={20}
-                                                    color={isFavorite(item.id) ? "#EF4444" : "#FFFFFF"}
-                                                />
-                                            </TouchableOpacity>
-                                        </View>
-                                        <View style={styles.movieMeta}>
-                                            <View style={styles.genreBadge}>
-                                                <Text style={styles.genreText}>{item.artist}</Text>
-                                            </View>
-                                            <Text style={styles.movieDuration}>{item.duration}</Text>
-                                        </View>
-                                        {item.description && (
-                                            <Text style={styles.movieSynopsis} numberOfLines={expandedTrailerId === item.id ? undefined : 3}>
-                                                {item.description}
-                                            </Text>
-                                        )}
-                                    </View>
-                                </View>
-
-                                {/* Trailer Section */}
-                                {item.trailer && (
-                                    <View style={styles.trailerSection}>
-                                        {expandedTrailerId === item.id ? (
-                                            <>
-                                                <View style={styles.trailerContainer}>
-                                                    <YouTubePlayer
-                                                        videoId={extractYouTubeId(item.trailer) || ''}
-                                                        height={200}
-                                                        autoplay={true}
-                                                    />
-                                                </View>
+            {/* Content: Loading / Error / Track list */}
+            {isLoading ? (
+                <TrackListSkeleton count={6} />
+            ) : error && tracks.length === 0 ? (
+                <View style={styles.errorContainer}>
+                    <Icon name="alert-circle" size={48} color="#EF4444" />
+                    <Text style={styles.errorTitle}>Couldn't load recommendations</Text>
+                    <Text style={styles.errorMessage}>{error}</Text>
+                    <TouchableOpacity style={styles.retryBtn} onPress={loadRecommendations}>
+                        <Icon name="refresh-cw" size={18} color="#FFFFFF" />
+                        <Text style={styles.retryText}>Retry</Text>
+                    </TouchableOpacity>
+                </View>
+            ) : (
+                <ScrollView
+                    style={styles.scrollView}
+                    contentContainerStyle={styles.content}
+                    showsVerticalScrollIndicator={false}
+                >
+                    {tracks.map((item) => (
+                        <GlassCard key={item.id} style={styles.itemCard}>
+                            {activeTab === 'Movie' ? (
+                                /* Movie Card Layout */
+                                <View style={styles.movieCard}>
+                                    <View style={styles.movieHeader}>
+                                        <Image
+                                            source={{ uri: item.cover }}
+                                            style={styles.moviePoster}
+                                        />
+                                        <View style={styles.movieInfo}>
+                                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                                                <Text style={[styles.movieTitle, { flex: 1 }]} numberOfLines={2}>{item.title}</Text>
                                                 <TouchableOpacity
-                                                    style={styles.closeTrailerBtn}
+                                                    style={styles.movieFavBtn}
+                                                    onPress={() => toggleFavorite({ ...item, type: activeTab })}
+                                                >
+                                                    <Icon
+                                                        name="heart"
+                                                        size={20}
+                                                        color={isFavorite(item.id) ? "#EF4444" : "#FFFFFF"}
+                                                    />
+                                                </TouchableOpacity>
+                                            </View>
+                                            <View style={styles.movieMeta}>
+                                                <View style={styles.genreBadge}>
+                                                    <Text style={styles.genreText}>{item.artist}</Text>
+                                                </View>
+                                                <Text style={styles.movieDuration}>{item.duration}</Text>
+                                            </View>
+                                            {item.description && (
+                                                <Text style={styles.movieSynopsis} numberOfLines={expandedTrailerId === item.id ? undefined : 3}>
+                                                    {item.description}
+                                                </Text>
+                                            )}
+                                        </View>
+                                    </View>
+
+                                    {/* Trailer Section */}
+                                    {item.trailer && (
+                                        <View style={styles.trailerSection}>
+                                            {expandedTrailerId === item.id ? (
+                                                <>
+                                                    <View style={styles.trailerContainer}>
+                                                        <YouTubePlayer
+                                                            videoId={extractYouTubeId(item.trailer) || ''}
+                                                            height={200}
+                                                            autoplay={true}
+                                                        />
+                                                    </View>
+                                                    <TouchableOpacity
+                                                        style={styles.closeTrailerBtn}
+                                                        onPress={() => toggleTrailer(item.id)}
+                                                    >
+                                                        <Icon name="x" size={16} color="#94A3B8" style={ICON_STYLE} />
+                                                        <Text style={styles.closeTrailerText}>Close Trailer</Text>
+                                                    </TouchableOpacity>
+                                                </>
+                                            ) : (
+                                                <TouchableOpacity
+                                                    style={styles.watchTrailerBtn}
                                                     onPress={() => toggleTrailer(item.id)}
                                                 >
-                                                    <Icon name="x" size={16} color="#94A3B8" style={ICON_STYLE} />
-                                                    <Text style={styles.closeTrailerText}>Close Trailer</Text>
+                                                    <View style={styles.trailerPlayIcon}>
+                                                        <Icon name="play" size={16} color="#FFFFFF" style={ICON_STYLE} />
+                                                    </View>
+                                                    <Text style={styles.watchTrailerText}>Watch Trailer</Text>
                                                 </TouchableOpacity>
-                                            </>
-                                        ) : (
-                                            <TouchableOpacity
-                                                style={styles.watchTrailerBtn}
-                                                onPress={() => toggleTrailer(item.id)}
-                                            >
-                                                <View style={styles.trailerPlayIcon}>
-                                                    <Icon name="play" size={16} color="#FFFFFF" style={ICON_STYLE} />
-                                                </View>
-                                                <Text style={styles.watchTrailerText}>Watch Trailer</Text>
-                                            </TouchableOpacity>
-                                        )}
-                                    </View>
-                                )}
-                            </View>
-                        ) : (
-                            /* Music/Video Card Layout */
-                            <TouchableOpacity
-                                style={styles.itemContent}
-                                onPress={() => handlePlay(item)}
-                            >
-                                <View style={styles.itemTop}>
-                                    <Image
-                                        source={{ uri: item.cover }}
-                                        style={styles.itemCover}
-                                    />
-                                    <View style={styles.itemInfo}>
-                                        <Text style={styles.itemTitle} numberOfLines={1}>{item.title}</Text>
-                                        <Text style={styles.itemArtist}>{item.artist}</Text>
-                                    </View>
-                                    <View style={styles.playButton}>
-                                        <Text style={styles.playIcon}>▶</Text>
-                                    </View>
-                                    <TouchableOpacity
-                                        style={styles.favBtn}
-                                        onPress={() => toggleFavorite({ ...item, type: activeTab })}
-                                    >
-                                        <Icon
-                                            name="heart"
-                                            size={20}
-                                            color={isFavorite(item.id) ? "#EF4444" : "#FFFFFF"}
-                                        />
-                                    </TouchableOpacity>
+                                            )}
+                                        </View>
+                                    )}
                                 </View>
-                            </TouchableOpacity>
-                        )}
-                    </GlassCard>
-                ))}
-            </ScrollView>
+                            ) : (
+                                /* Music/Video Card Layout */
+                                <TouchableOpacity
+                                    style={styles.itemContent}
+                                    onPress={() => handlePlay(item)}
+                                >
+                                    <View style={styles.itemTop}>
+                                        <Image
+                                            source={{ uri: item.cover }}
+                                            style={styles.itemCover}
+                                        />
+                                        <View style={styles.itemInfo}>
+                                            <Text style={styles.itemTitle} numberOfLines={1}>{item.title}</Text>
+                                            <Text style={styles.itemArtist}>{item.artist}</Text>
+                                        </View>
+                                        <View style={styles.playButton}>
+                                            <Text style={styles.playIcon}>▶</Text>
+                                        </View>
+                                        <TouchableOpacity
+                                            style={styles.favBtn}
+                                            onPress={() => toggleFavorite({ ...item, type: activeTab })}
+                                        >
+                                            <Icon
+                                                name="heart"
+                                                size={20}
+                                                color={isFavorite(item.id) ? "#EF4444" : "#FFFFFF"}
+                                            />
+                                        </TouchableOpacity>
+                                    </View>
+                                </TouchableOpacity>
+                            )}
+                        </GlassCard>
+                    ))}
+                </ScrollView>
+            )}
 
             {/* Bottom Actions */}
             <GlassCard style={styles.bottomActions}>
@@ -306,14 +419,69 @@ const styles = StyleSheet.create({
         backgroundColor: 'rgba(255, 255, 255, 0.1)',
         marginVertical: 8,
     },
+    statusRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginTop: 12,
+    },
     description: {
         fontSize: 14,
         color: '#94A3B8',
         fontWeight: '300',
-        marginTop: 12,
     },
     descriptionBold: {
         fontWeight: '700',
+        color: '#FFFFFF',
+    },
+    offlineBadge: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 4,
+        backgroundColor: 'rgba(245, 158, 11, 0.15)',
+        paddingHorizontal: 10,
+        paddingVertical: 4,
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: 'rgba(245, 158, 11, 0.3)',
+    },
+    offlineText: {
+        fontSize: 11,
+        fontWeight: '600',
+        color: '#F59E0B',
+    },
+    // Error state
+    errorContainer: {
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+        padding: 32,
+        gap: 16,
+    },
+    errorTitle: {
+        fontSize: 18,
+        fontWeight: '700',
+        color: '#FFFFFF',
+        textAlign: 'center',
+    },
+    errorMessage: {
+        fontSize: 14,
+        color: '#94A3B8',
+        textAlign: 'center',
+    },
+    retryBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        backgroundColor: '#3B82F6',
+        paddingHorizontal: 24,
+        paddingVertical: 12,
+        borderRadius: 24,
+        marginTop: 8,
+    },
+    retryText: {
+        fontSize: 14,
+        fontWeight: '600',
         color: '#FFFFFF',
     },
     scrollView: {
@@ -371,45 +539,7 @@ const styles = StyleSheet.create({
         fontSize: 14,
         marginLeft: 2,
     },
-    movieDescription: {
-        paddingTop: 12,
-        borderTopWidth: 1,
-        borderTopColor: 'rgba(255, 255, 255, 0.05)',
-        gap: 12,
-    },
-    descriptionText: {
-        fontSize: 12,
-        color: '#CBD5E1',
-        lineHeight: 18,
-    },
-    trailerButton: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 8,
-        backgroundColor: 'rgba(239, 68, 68, 0.1)',
-        paddingHorizontal: 12,
-        paddingVertical: 8,
-        borderRadius: 8,
-        alignSelf: 'flex-start',
-    },
-    trailerText: {
-        fontSize: 12,
-        fontWeight: '700',
-        color: '#EF4444',
-        textTransform: 'uppercase',
-        letterSpacing: 0.5,
-    },
-    trailerContainer: {
-        borderRadius: 12,
-        overflow: 'hidden',
-    },
-    trailerButtonActive: {
-        backgroundColor: 'rgba(148, 163, 184, 0.1)',
-    },
-    trailerTextActive: {
-        color: '#94A3B8',
-    },
-    // Movie Card Styles
+    // Movie card styles
     movieCard: {
         padding: 0,
     },
@@ -489,6 +619,10 @@ const styles = StyleSheet.create({
         color: '#EF4444',
         textTransform: 'uppercase',
         letterSpacing: 1,
+    },
+    trailerContainer: {
+        borderRadius: 12,
+        overflow: 'hidden',
     },
     closeTrailerBtn: {
         flexDirection: 'row',

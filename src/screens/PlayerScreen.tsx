@@ -1,4 +1,18 @@
-import React, { useState, useEffect, useRef, useContext } from 'react';
+/**
+ * PlayerScreen — Global Music/Video Player
+ * 
+ * REFACTORED: Now uses PlayerContext for all playback state.
+ * Single YouTube player instance via react-native-youtube-iframe.
+ * 
+ * KEY BEHAVIORS:
+ * - Music tab: Shows album art + custom controls + progress bar
+ * - Video tab: Shows YouTube player + controls
+ * - Switching tabs does NOT restart playback
+ * - Queue management through PlayerContext
+ * - Real progress bar synced with YouTube player
+ */
+
+import React, { useCallback, useContext, useRef } from 'react';
 import {
     View,
     Text,
@@ -6,72 +20,95 @@ import {
     TouchableOpacity,
     ScrollView,
     Image,
-    TextInput,
-    Animated,
-    Dimensions
+    Dimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
+import { useNavigation } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/Feather';
 import LinearGradient from 'react-native-linear-gradient';
-import { YouTubePlayer, extractYouTubeId } from '../components';
-import { NavigationProp, RootStackParamList, MediaItem, ChatMessage } from '../types';
+import { YouTubePlayer, extractYouTubeId, YouTubePlayerRef } from '../components';
+import { NavigationProp, MediaItem } from '../types';
 import { AppContext } from '../context/AppContext';
+import { usePlayer } from '../context/PlayerContext';
 import { ICON_STYLE } from '../constants';
-
-type PlayerRouteProp = RouteProp<RootStackParamList, 'Player'>;
 
 export const PlayerScreen: React.FC = () => {
     const navigation = useNavigation<NavigationProp>();
-    const route = useRoute<PlayerRouteProp>();
-    const { item: initialItem, queue: initialQueue, type } = route.params;
     const { toggleFavorite, isFavorite } = useContext(AppContext);
+    const playerRef = useRef<YouTubePlayerRef>(null);
 
+    // All playback state comes from the global PlayerContext
+    const {
+        state: { currentTrack, queue, history, isPlaying, isVideoMode, currentTime, duration },
+        pause,
+        resume,
+        togglePlay,
+        next,
+        previous,
+        setVideoMode,
+        setTime,
+        playFromQueue,
+    } = usePlayer();
 
-
-    const [currentItem, setCurrentItem] = useState(initialItem);
-    const [queue, setQueue] = useState(initialQueue);
-    const [history, setHistory] = useState<MediaItem[]>([]);
-    const [isPlaying, setIsPlaying] = useState(true);
-    const [isVideoMode, setIsVideoMode] = useState(type === 'Video' || type === 'Movie');
-
-    const scrollViewRef = useRef<ScrollView>(null);
     const screenWidth = Dimensions.get('window').width;
+    const trackWidth = screenWidth - 48;
     const videoHeight = (screenWidth - 48) * (9 / 16);
 
-    const handlePlayQueueItem = (queueItem: MediaItem) => {
-        const index = queue.findIndex(i => i.id === queueItem.id);
-        const newQueue = queue.slice(index + 1);
-        setHistory(prev => [...prev, currentItem]);
-        setCurrentItem(queueItem);
-        setQueue(newQueue);
-    };
+    // Get the videoId — either from the dedicated field or extracted from URL
+    const videoId = currentTrack?.videoId ||
+        (currentTrack?.videoUrl ? extractYouTubeId(currentTrack.videoUrl) : null);
 
-    const handleNext = () => {
-        if (queue.length > 0) {
-            const nextItem = queue[0];
-            const newQueue = queue.slice(1);
-            setHistory(prev => [...prev, currentItem]);
-            setCurrentItem(nextItem);
-            setQueue(newQueue);
-        }
-    };
+    /**
+     * Format seconds to "m:ss" display format
+     */
+    const formatTime = useCallback((seconds: number): string => {
+        if (!seconds || isNaN(seconds)) return '0:00';
+        const mins = Math.floor(seconds / 60);
+        const secs = Math.floor(seconds % 60);
+        return `${mins}:${secs.toString().padStart(2, '0')}`;
+    }, []);
 
-    const handlePrevious = () => {
-        if (history.length > 0) {
-            const previousItem = history[history.length - 1];
-            const newHistory = history.slice(0, -1);
-            setQueue(prev => [currentItem, ...prev]);
-            setCurrentItem(previousItem);
-            setHistory(newHistory);
+    /**
+     * Calculate progress percentage for the progress bar
+     */
+    const progressPercent = duration > 0 ? (currentTime / duration) * 100 : 0;
+
+    /**
+     * Handle YouTube player state changes — sync with PlayerContext
+     */
+    const handleStateChange = useCallback((state: string) => {
+        if (state === 'ended') {
+            // Auto-play next track when current one ends
+            next();
         }
-    };
+    }, [next]);
+
+    /**
+     * Handle progress updates from YouTube player
+     */
+    const handleProgress = useCallback((time: number, dur: number) => {
+        setTime(time, dur);
+    }, [setTime]);
+
+    if (!currentTrack) {
+        return (
+            <SafeAreaView style={styles.container} edges={['top']}>
+                <View style={styles.emptyState}>
+                    <Icon name="music" size={48} color="#64748B" />
+                    <Text style={styles.emptyText}>No track playing</Text>
+                    <TouchableOpacity
+                        style={styles.emptyBtn}
+                        onPress={() => navigation.goBack()}
+                    >
+                        <Text style={styles.emptyBtnText}>Go Back</Text>
+                    </TouchableOpacity>
+                </View>
+            </SafeAreaView>
+        );
+    }
 
     return (
         <SafeAreaView style={styles.container} edges={['top']}>
-            {/* Quick Chat Overlay */}
-
-
             {/* Header */}
             <View style={styles.header}>
                 <TouchableOpacity
@@ -81,18 +118,18 @@ export const PlayerScreen: React.FC = () => {
                     <Icon name="chevron-down" size={28} color="#FFFFFF" style={ICON_STYLE} />
                 </TouchableOpacity>
 
-                {/* Mode Switcher - Centered Absolutely */}
+                {/* Mode Switcher — Toggle between Music and Video */}
                 <View style={styles.modeSwitcherContainer}>
                     <View style={styles.modeSwitcher}>
                         <TouchableOpacity
                             style={[styles.modeBtn, !isVideoMode && styles.modeBtnActive]}
-                            onPress={() => setIsVideoMode(false)}
+                            onPress={() => setVideoMode(false)}
                         >
                             <Text style={[styles.modeBtnText, !isVideoMode && styles.modeBtnTextActive]}>Music</Text>
                         </TouchableOpacity>
                         <TouchableOpacity
                             style={[styles.modeBtn, isVideoMode && styles.modeBtnActive]}
-                            onPress={() => setIsVideoMode(true)}
+                            onPress={() => setVideoMode(true)}
                         >
                             <Text style={[styles.modeBtnText, isVideoMode && styles.modeBtnTextActive]}>Video</Text>
                         </TouchableOpacity>
@@ -102,12 +139,12 @@ export const PlayerScreen: React.FC = () => {
                 <View style={styles.headerRight}>
                     <TouchableOpacity
                         style={styles.headerBtn}
-                        onPress={() => toggleFavorite(currentItem)}
+                        onPress={() => toggleFavorite(currentTrack)}
                     >
                         <Icon
                             name="heart"
                             size={24}
-                            color={isFavorite(currentItem.id) ? "#EF4444" : "#FFFFFF"}
+                            color={isFavorite(currentTrack.id) ? "#EF4444" : "#FFFFFF"}
                         />
                     </TouchableOpacity>
                 </View>
@@ -118,41 +155,51 @@ export const PlayerScreen: React.FC = () => {
                 contentContainerStyle={styles.mainContentInner}
                 showsVerticalScrollIndicator={false}
             >
-                {isVideoMode && currentItem.videoUrl ? (
-                    <View style={[styles.coverContainer, styles.coverVideo]}>
-                        <YouTubePlayer
-                            videoId={extractYouTubeId(currentItem.videoUrl) || ''}
-                            height={videoHeight}
-                            autoplay={isPlaying}
-                        />
-                    </View>
-                ) : (
+                {/* ALWAYS RENDER YOUTUBE PLAYER, OVERLAY ALBUM ART IN MUSIC MODE */}
+                {videoId && (
                     <View style={[styles.coverContainer, isVideoMode && styles.coverVideo]}>
-                        <Image
-                            source={{ uri: currentItem.cover }}
-                            style={styles.coverImage}
-                        />
-                        <TouchableOpacity
-                            style={[styles.playOverlay, isPlaying && styles.playOverlayHidden]}
-                            onPress={() => setIsPlaying(!isPlaying)}
-                        >
-                            <View style={styles.playOverlayBtn}>
-                                <Icon
-                                    name={isPlaying ? 'pause' : 'play'}
-                                    size={32}
-                                    color="#FFFFFF"
-                                    style={ICON_STYLE}
+                        <View pointerEvents={isVideoMode ? "auto" : "none"}>
+                            <YouTubePlayer
+                                ref={playerRef}
+                                videoId={videoId}
+                                height={isVideoMode ? videoHeight : screenWidth - 48}
+                                autoplay={true}
+                                isPlaying={isPlaying}
+                                onStateChange={handleStateChange}
+                                onProgress={handleProgress}
+                            />
+                        </View>
+
+                        {/* Music Mode: Show album art with play overlay OVER the hidden video */}
+                        {!isVideoMode && (
+                            <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
+                                <Image
+                                    source={{ uri: currentTrack.albumArt || currentTrack.cover }}
+                                    style={[styles.coverImage, { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }]}
                                 />
+                                <TouchableOpacity
+                                    style={[styles.playOverlay, isPlaying && styles.playOverlayHidden]}
+                                    onPress={togglePlay}
+                                >
+                                    <View style={styles.playOverlayBtn}>
+                                        <Icon
+                                            name={isPlaying ? 'pause' : 'play'}
+                                            size={32}
+                                            color="#FFFFFF"
+                                            style={ICON_STYLE}
+                                        />
+                                    </View>
+                                </TouchableOpacity>
                             </View>
-                        </TouchableOpacity>
+                        )}
                     </View>
                 )}
 
-                {/* Info Area */}
+                {/* Track Info */}
                 <View style={styles.infoArea}>
                     <View style={styles.infoText}>
-                        <Text style={styles.itemTitle} numberOfLines={1}>{currentItem.title}</Text>
-                        <Text style={styles.itemArtist}>{currentItem.artist}</Text>
+                        <Text style={styles.itemTitle} numberOfLines={1}>{currentTrack.title}</Text>
+                        <Text style={styles.itemArtist}>{currentTrack.artist}</Text>
                     </View>
                     <View style={styles.feedbackBtns}>
                         <TouchableOpacity style={styles.feedbackBtn}>
@@ -164,33 +211,46 @@ export const PlayerScreen: React.FC = () => {
                     </View>
                 </View>
 
-                {/* Progress Bar */}
-                {/* Progress Bar */}
+                {/* Progress Bar — Now shows REAL progress from YouTube player */}
                 {!isVideoMode && (
                     <View style={styles.progressContainer}>
-                        <View style={styles.progressTrack}>
-                            <View style={styles.progressFill} />
-                            <View style={styles.progressThumb} />
-                        </View>
+                        <TouchableOpacity 
+                            style={styles.progressTrack}
+                            activeOpacity={1}
+                            onPress={(e) => {
+                                if (duration > 0 && playerRef.current) {
+                                    const percent = Math.max(0, Math.min(1, e.nativeEvent.locationX / trackWidth));
+                                    playerRef.current.seekTo(percent * duration);
+                                }
+                            }}
+                        >
+                            <View style={[styles.progressFill, { width: `${Math.min(progressPercent, 100)}%` }]} />
+                            <View style={[styles.progressThumb, { left: `${Math.min(progressPercent, 100)}%` }]} />
+                        </TouchableOpacity>
                         <View style={styles.progressTimes}>
-                            <Text style={styles.progressTime}>1:12</Text>
-                            <Text style={styles.progressTime}>{currentItem.duration || '3:45'}</Text>
+                            <Text style={styles.progressTime}>{formatTime(currentTime)}</Text>
+                            <Text style={styles.progressTime}>
+                                {duration > 0 ? formatTime(duration) : (currentTrack.duration || '0:00')}
+                            </Text>
                         </View>
                     </View>
                 )}
 
-                {/* Controls */}
+                {/* Playback Controls */}
                 <View style={styles.controls}>
                     <TouchableOpacity>
                         <Icon name="shuffle" size={20} color="#94A3B8" />
                     </TouchableOpacity>
-                    <TouchableOpacity onPress={handlePrevious} style={styles.controlBtn}>
-                        <Icon name="skip-back" size={32} color="#FFFFFF" />
+                    <TouchableOpacity
+                        onPress={previous}
+                        style={[styles.controlBtn, history.length === 0 && styles.controlDisabled]}
+                    >
+                        <Icon name="skip-back" size={32} color={history.length === 0 ? "#475569" : "#FFFFFF"} />
                     </TouchableOpacity>
                     {!isVideoMode && (
                         <TouchableOpacity
                             style={styles.mainPlayBtn}
-                            onPress={() => setIsPlaying(!isPlaying)}
+                            onPress={togglePlay}
                         >
                             <LinearGradient
                                 colors={['#2563EB', '#4F46E5']}
@@ -204,8 +264,11 @@ export const PlayerScreen: React.FC = () => {
                             </LinearGradient>
                         </TouchableOpacity>
                     )}
-                    <TouchableOpacity onPress={handleNext} style={styles.controlBtn}>
-                        <Icon name="skip-forward" size={32} color="#FFFFFF" />
+                    <TouchableOpacity
+                        onPress={next}
+                        style={[styles.controlBtn, queue.length === 0 && styles.controlDisabled]}
+                    >
+                        <Icon name="skip-forward" size={32} color={queue.length === 0 ? "#475569" : "#FFFFFF"} />
                     </TouchableOpacity>
                     <TouchableOpacity>
                         <Icon name="repeat" size={20} color="#94A3B8" />
@@ -215,13 +278,13 @@ export const PlayerScreen: React.FC = () => {
                 {/* Queue Section */}
                 {queue.length > 0 && (
                     <View style={styles.queueSection}>
-                        <Text style={styles.queueTitle}>Up Next</Text>
+                        <Text style={styles.queueTitle}>Up Next ({queue.length})</Text>
                         <View style={styles.queueList}>
                             {queue.map((qItem, idx) => (
                                 <TouchableOpacity
-                                    key={qItem.id || idx}
+                                    key={`${qItem.id}-${idx}`}
                                     style={styles.queueItem}
-                                    onPress={() => handlePlayQueueItem(qItem)}
+                                    onPress={() => playFromQueue(qItem)}
                                 >
                                     <View style={[styles.queueCover, isVideoMode && styles.queueCoverVideo]}>
                                         <Image
@@ -243,6 +306,19 @@ export const PlayerScreen: React.FC = () => {
                     </View>
                 )}
             </ScrollView>
+
+            {/* Hidden YouTube player for audio mode — keeps audio playing */}
+            {!isVideoMode && videoId && (
+                <View style={styles.hiddenPlayer}>
+                    <YouTubePlayer
+                        videoId={videoId}
+                        height={1}
+                        isPlaying={isPlaying}
+                        onStateChange={handleStateChange}
+                        onProgress={handleProgress}
+                    />
+                </View>
+            )}
         </SafeAreaView>
     );
 };
@@ -252,106 +328,28 @@ const styles = StyleSheet.create({
         flex: 1,
         backgroundColor: 'rgba(2, 6, 23, 0.95)',
     },
-    chatOverlay: {
-        position: 'absolute',
-        top: 64,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        backgroundColor: 'rgba(0, 0, 0, 0.9)',
-        zIndex: 50,
-        borderTopLeftRadius: 24,
-        borderTopRightRadius: 24,
-        borderTopWidth: 1,
-        borderTopColor: 'rgba(255, 255, 255, 0.1)',
-    },
-    chatHeader: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        padding: 16,
-        borderBottomWidth: 1,
-        borderBottomColor: 'rgba(255, 255, 255, 0.1)',
-        backgroundColor: 'rgba(255, 255, 255, 0.05)',
-        borderTopLeftRadius: 24,
-        borderTopRightRadius: 24,
-    },
-    chatHeaderLeft: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 8,
-    },
-    chatAvatar: {
-        width: 32,
-        height: 32,
-        borderRadius: 16,
+    // Empty state
+    emptyState: {
+        flex: 1,
         justifyContent: 'center',
         alignItems: 'center',
-    },
-    chatAvatarText: {
-        fontSize: 12,
-        fontWeight: '700',
-        color: '#FFFFFF',
-    },
-    chatTitle: {
-        fontSize: 14,
-        fontWeight: '700',
-        color: '#FFFFFF',
-    },
-    chatCloseBtn: {
-        padding: 8,
-    },
-    chatMessages: {
-        flex: 1,
-    },
-    chatMessagesContent: {
-        padding: 16,
         gap: 16,
     },
-    chatBubble: {
-        maxWidth: '80%',
-        padding: 12,
-        borderRadius: 16,
+    emptyText: {
+        fontSize: 16,
+        color: '#94A3B8',
     },
-    chatBubbleUser: {
-        alignSelf: 'flex-end',
-        backgroundColor: '#2563EB',
-        borderBottomRightRadius: 4,
-    },
-    chatBubbleBot: {
-        alignSelf: 'flex-start',
-        backgroundColor: 'rgba(255, 255, 255, 0.1)',
-        borderBottomLeftRadius: 4,
-    },
-    chatBubbleText: {
-        fontSize: 14,
-        color: '#F1F5F9',
-    },
-    chatInputArea: {
-        flexDirection: 'row',
-        padding: 16,
-        gap: 8,
-        borderTopWidth: 1,
-        borderTopColor: 'rgba(255, 255, 255, 0.1)',
-        backgroundColor: 'rgba(0, 0, 0, 0.4)',
-    },
-    chatInputField: {
-        flex: 1,
-        backgroundColor: 'rgba(255, 255, 255, 0.1)',
-        borderRadius: 24,
-        paddingHorizontal: 16,
+    emptyBtn: {
+        backgroundColor: '#3B82F6',
+        paddingHorizontal: 24,
         paddingVertical: 12,
-        fontSize: 14,
+        borderRadius: 20,
+    },
+    emptyBtnText: {
         color: '#FFFFFF',
+        fontWeight: '600',
     },
-    chatSendBtn: {
-        width: 48,
-        height: 48,
-        borderRadius: 24,
-        backgroundColor: '#2563EB',
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
+    // Header
     header: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -367,8 +365,13 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         backgroundColor: 'rgba(255, 255, 255, 0.05)',
     },
-    headerBtnActive: {
-        backgroundColor: '#2563EB',
+    modeSwitcherContainer: {
+        position: 'absolute',
+        left: 0,
+        right: 0,
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: -1,
     },
     modeSwitcher: {
         flexDirection: 'row',
@@ -403,6 +406,7 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         gap: 8,
     },
+    // Main content
     mainContent: {
         flex: 1,
     },
@@ -455,6 +459,7 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         alignItems: 'center',
     },
+    // Track info
     infoArea: {
         flexDirection: 'row',
         justifyContent: 'space-between',
@@ -496,6 +501,7 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         alignItems: 'center',
     },
+    // Progress bar
     progressContainer: {
         marginBottom: 24,
     },
@@ -507,14 +513,12 @@ const styles = StyleSheet.create({
         marginBottom: 8,
     },
     progressFill: {
-        width: '33%',
         height: '100%',
         backgroundColor: '#3B82F6',
         borderRadius: 3,
     },
     progressThumb: {
         position: 'absolute',
-        left: '33%',
         top: -3,
         width: 12,
         height: 12,
@@ -524,6 +528,7 @@ const styles = StyleSheet.create({
         shadowOffset: { width: 0, height: 0 },
         shadowOpacity: 0.8,
         shadowRadius: 10,
+        marginLeft: -6,
     },
     progressTimes: {
         flexDirection: 'row',
@@ -534,17 +539,18 @@ const styles = StyleSheet.create({
         color: '#94A3B8',
         fontWeight: '500',
     },
+    // Controls
     controls: {
         flexDirection: 'row',
         alignItems: 'center',
-        justifyContent: 'center', // Centered
-        gap: 24, // Added gap
+        justifyContent: 'center',
+        gap: 24,
         paddingHorizontal: 12,
         marginBottom: 48,
     },
     controlBtn: {
-        width: 64, // Increased size
-        height: 64, // Increased size
+        width: 64,
+        height: 64,
         borderRadius: 32,
         justifyContent: 'center',
         alignItems: 'center',
@@ -552,13 +558,8 @@ const styles = StyleSheet.create({
         borderWidth: 1,
         borderColor: 'rgba(255, 255, 255, 0.05)',
     },
-    modeSwitcherContainer: {
-        position: 'absolute',
-        left: 0,
-        right: 0,
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: -1,
+    controlDisabled: {
+        opacity: 0.5,
     },
     mainPlayBtn: {
         shadowColor: '#3B82F6',
@@ -574,6 +575,7 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         alignItems: 'center',
     },
+    // Queue
     queueSection: {
         backgroundColor: 'rgba(30, 41, 59, 0.6)',
         borderRadius: 32,
@@ -642,5 +644,15 @@ const styles = StyleSheet.create({
         fontSize: 12,
         color: '#475569',
         fontFamily: 'monospace',
+    },
+    // Hidden player for audio mode (plays audio without showing video)
+    hiddenPlayer: {
+        position: 'absolute',
+        top: -1000,
+        left: 0,
+        width: 300,
+        height: 200,
+        opacity: 0.01,
+        overflow: 'hidden',
     },
 });

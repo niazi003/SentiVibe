@@ -16,35 +16,55 @@ export const ICON_STYLE = {
   textAlignVertical: 'center' as const,
 };
 
+// API Configuration
+export const API_CONFIG = {
+  // For Android emulator, 10.0.2.2 maps to host localhost
+  // For physical device, replace with your machine's local IP
+  BASE_URL: 'http://10.0.2.2:3001/api',
+  TIMEOUT: 15000,
+  CACHE_TTL: 3600, // 1 hour in seconds
+};
+
+// Mood to genre mapping (reference — backend has the canonical version)
+export const MOOD_GENRE_MAP: Record<string, string[]> = {
+  happy: ['pop', 'dance', 'happy'],
+  sad: ['sad', 'acoustic', 'piano'],
+  excited: ['edm', 'hip-hop', 'rock'],
+  angry: ['metal', 'rock', 'punk'],
+  relaxed: ['chill', 'ambient', 'jazz'],
+  romantic: ['r-n-b', 'soul', 'pop'],
+};
 
 export const MOCK_HISTORY = [
   { id: 1, date: '2023-10-24', mood: 'Happy', media: 'Song: Happy - Pharrell' },
   { id: 2, date: '2023-10-23', mood: 'Sad', media: 'Movie: The Pursuit of Happyness' },
 ];
 
-export const RECOMMENDATIONS: Record<string, {
-  Music: Array<{ id: number; title: string; artist: string; duration: string; cover: string; description?: string; trailer?: string; videoUrl?: string }>;
-  Video: Array<{ id: number; title: string; artist: string; duration: string; cover: string; description?: string; trailer?: string; videoUrl?: string }>;
-  Movie: Array<{ id: number; title: string; artist: string; duration: string; cover: string; description?: string; trailer?: string; videoUrl?: string }>;
+/**
+ * FALLBACK_RECOMMENDATIONS — Hardcoded data used when the backend is unreachable.
+ * This ensures the app remains usable offline.
+ */
+export const FALLBACK_RECOMMENDATIONS: Record<string, {
+  Music: Array<{ id: number; title: string; artist: string; duration: string; cover: string; description?: string; trailer?: string; videoUrl?: string; videoId?: string }>;
+  Video: Array<{ id: number; title: string; artist: string; duration: string; cover: string; description?: string; trailer?: string; videoUrl?: string; videoId?: string }>;
+  Movie: Array<{ id: number; title: string; artist: string; duration: string; cover: string; description?: string; trailer?: string; videoUrl?: string; videoId?: string }>;
 }> = {
   Happy: {
-    // Unified song list - same for Music and Video tabs
     Music: [
-      { id: 201, title: 'Happy', artist: 'Pharrell Williams', duration: '4:00', cover: 'https://tse2.mm.bing.net/th?q=Happy+Pharrell+Williams+Single+Cover&w=500&h=500&c=7&rs=1&p=0', videoUrl: 'https://www.youtube.com/watch?v=ZbZSe6N_BXs' },
-      { id: 202, title: "Can't Stop the Feeling!", artist: 'Justin Timberlake', duration: '4:02', cover: 'https://tse2.mm.bing.net/th?q=Can%27t+Stop+the+Feeling+Justin+Timberlake+Cover&w=500&h=500&c=7&rs=1&p=0', videoUrl: 'https://www.youtube.com/watch?v=ru0K8uYEZWw' },
-      { id: 203, title: 'Uptown Funk', artist: 'Mark Ronson ft. Bruno Mars', duration: '4:31', cover: 'https://tse2.mm.bing.net/th?q=Uptown+Funk+Mark+Ronson+Cover&w=500&h=500&c=7&rs=1&p=0', videoUrl: 'https://www.youtube.com/watch?v=OPf0YbXqDm0' },
-      { id: 204, title: 'Shake It Off', artist: 'Taylor Swift', duration: '3:39', cover: 'https://tse2.mm.bing.net/th?q=Shake+It+Off+Taylor+Swift+Cover&w=500&h=500&c=7&rs=1&p=0', videoUrl: 'https://www.youtube.com/watch?v=nfWlot6h_JM' },
-      { id: 205, title: 'Walking on Sunshine', artist: 'Katrina & The Waves', duration: '3:58', cover: 'https://tse2.mm.bing.net/th?q=Walking+on+Sunshine+Katrina+and+the+Waves+Cover&w=500&h=500&c=7&rs=1&p=0', videoUrl: 'https://www.youtube.com/watch?v=iPUmE-tne5U' },
-      { id: 206, title: 'Good Feeling', artist: 'Flo Rida', duration: '4:08', cover: 'https://tse2.mm.bing.net/th?q=Good+Feeling+Flo+Rida+Cover&w=500&h=500&c=7&rs=1&p=0', videoUrl: 'https://www.youtube.com/watch?v=3OnnDqH6Wj8' }
+      { id: 201, title: 'Happy', artist: 'Pharrell Williams', duration: '4:00', cover: 'https://tse2.mm.bing.net/th?q=Happy+Pharrell+Williams+Single+Cover&w=500&h=500&c=7&rs=1&p=0', videoId: 'ZbZSe6N_BXs', videoUrl: 'https://www.youtube.com/watch?v=ZbZSe6N_BXs' },
+      { id: 202, title: "Can't Stop the Feeling!", artist: 'Justin Timberlake', duration: '4:02', cover: 'https://tse2.mm.bing.net/th?q=Can%27t+Stop+the+Feeling+Justin+Timberlake+Cover&w=500&h=500&c=7&rs=1&p=0', videoId: 'ru0K8uYEZWw', videoUrl: 'https://www.youtube.com/watch?v=ru0K8uYEZWw' },
+      { id: 203, title: 'Uptown Funk', artist: 'Mark Ronson ft. Bruno Mars', duration: '4:31', cover: 'https://tse2.mm.bing.net/th?q=Uptown+Funk+Mark+Ronson+Cover&w=500&h=500&c=7&rs=1&p=0', videoId: 'OPf0YbXqDm0', videoUrl: 'https://www.youtube.com/watch?v=OPf0YbXqDm0' },
+      { id: 204, title: 'Shake It Off', artist: 'Taylor Swift', duration: '3:39', cover: 'https://tse2.mm.bing.net/th?q=Shake+It+Off+Taylor+Swift+Cover&w=500&h=500&c=7&rs=1&p=0', videoId: 'nfWlot6h_JM', videoUrl: 'https://www.youtube.com/watch?v=nfWlot6h_JM' },
+      { id: 205, title: 'Walking on Sunshine', artist: 'Katrina & The Waves', duration: '3:58', cover: 'https://tse2.mm.bing.net/th?q=Walking+on+Sunshine+Katrina+and+the+Waves+Cover&w=500&h=500&c=7&rs=1&p=0', videoId: 'iPUmE-tne5U', videoUrl: 'https://www.youtube.com/watch?v=iPUmE-tne5U' },
+      { id: 206, title: 'Good Feeling', artist: 'Flo Rida', duration: '4:08', cover: 'https://tse2.mm.bing.net/th?q=Good+Feeling+Flo+Rida+Cover&w=500&h=500&c=7&rs=1&p=0', videoId: '3OnnDqH6Wj8', videoUrl: 'https://www.youtube.com/watch?v=3OnnDqH6Wj8' }
     ],
-    // Video uses the same list as Music
     Video: [
-      { id: 201, title: 'Happy', artist: 'Pharrell Williams', duration: '4:00', cover: 'https://tse2.mm.bing.net/th?q=Happy+Pharrell+Williams+Single+Cover&w=500&h=500&c=7&rs=1&p=0', videoUrl: 'https://www.youtube.com/watch?v=ZbZSe6N_BXs' },
-      { id: 202, title: "Can't Stop the Feeling!", artist: 'Justin Timberlake', duration: '4:02', cover: 'https://tse2.mm.bing.net/th?q=Can%27t+Stop+the+Feeling+Justin+Timberlake+Cover&w=500&h=500&c=7&rs=1&p=0', videoUrl: 'https://www.youtube.com/watch?v=ru0K8uYEZWw' },
-      { id: 203, title: 'Uptown Funk', artist: 'Mark Ronson ft. Bruno Mars', duration: '4:31', cover: 'https://tse2.mm.bing.net/th?q=Uptown+Funk+Mark+Ronson+Cover&w=500&h=500&c=7&rs=1&p=0', videoUrl: 'https://www.youtube.com/watch?v=OPf0YbXqDm0' },
-      { id: 204, title: 'Shake It Off', artist: 'Taylor Swift', duration: '3:39', cover: 'https://tse2.mm.bing.net/th?q=Shake+It+Off+Taylor+Swift+Cover&w=500&h=500&c=7&rs=1&p=0', videoUrl: 'https://www.youtube.com/watch?v=nfWlot6h_JM' },
-      { id: 205, title: 'Walking on Sunshine', artist: 'Katrina & The Waves', duration: '3:58', cover: 'https://tse2.mm.bing.net/th?q=Walking+on+Sunshine+Katrina+and+the+Waves+Cover&w=500&h=500&c=7&rs=1&p=0', videoUrl: 'https://www.youtube.com/watch?v=iPUmE-tne5U' },
-      { id: 206, title: 'Good Feeling', artist: 'Flo Rida', duration: '4:08', cover: 'https://tse2.mm.bing.net/th?q=Good+Feeling+Flo+Rida+Cover&w=500&h=500&c=7&rs=1&p=0', videoUrl: 'https://www.youtube.com/watch?v=3OnnDqH6Wj8' }
+      { id: 201, title: 'Happy', artist: 'Pharrell Williams', duration: '4:00', cover: 'https://tse2.mm.bing.net/th?q=Happy+Pharrell+Williams+Single+Cover&w=500&h=500&c=7&rs=1&p=0', videoId: 'ZbZSe6N_BXs', videoUrl: 'https://www.youtube.com/watch?v=ZbZSe6N_BXs' },
+      { id: 202, title: "Can't Stop the Feeling!", artist: 'Justin Timberlake', duration: '4:02', cover: 'https://tse2.mm.bing.net/th?q=Can%27t+Stop+the+Feeling+Justin+Timberlake+Cover&w=500&h=500&c=7&rs=1&p=0', videoId: 'ru0K8uYEZWw', videoUrl: 'https://www.youtube.com/watch?v=ru0K8uYEZWw' },
+      { id: 203, title: 'Uptown Funk', artist: 'Mark Ronson ft. Bruno Mars', duration: '4:31', cover: 'https://tse2.mm.bing.net/th?q=Uptown+Funk+Mark+Ronson+Cover&w=500&h=500&c=7&rs=1&p=0', videoId: 'OPf0YbXqDm0', videoUrl: 'https://www.youtube.com/watch?v=OPf0YbXqDm0' },
+      { id: 204, title: 'Shake It Off', artist: 'Taylor Swift', duration: '3:39', cover: 'https://tse2.mm.bing.net/th?q=Shake+It+Off+Taylor+Swift+Cover&w=500&h=500&c=7&rs=1&p=0', videoId: 'nfWlot6h_JM', videoUrl: 'https://www.youtube.com/watch?v=nfWlot6h_JM' },
+      { id: 205, title: 'Walking on Sunshine', artist: 'Katrina & The Waves', duration: '3:58', cover: 'https://tse2.mm.bing.net/th?q=Walking+on+Sunshine+Katrina+and+the+Waves+Cover&w=500&h=500&c=7&rs=1&p=0', videoId: 'iPUmE-tne5U', videoUrl: 'https://www.youtube.com/watch?v=iPUmE-tne5U' },
+      { id: 206, title: 'Good Feeling', artist: 'Flo Rida', duration: '4:08', cover: 'https://tse2.mm.bing.net/th?q=Good+Feeling+Flo+Rida+Cover&w=500&h=500&c=7&rs=1&p=0', videoId: '3OnnDqH6Wj8', videoUrl: 'https://www.youtube.com/watch?v=3OnnDqH6Wj8' }
     ],
     Movie: [
       {
@@ -69,16 +89,16 @@ export const RECOMMENDATIONS: Record<string, {
   },
   Sad: {
     Music: [
-      { id: 211, title: 'Someone Like You', artist: 'Adele', duration: '4:45', cover: 'https://tse2.mm.bing.net/th?q=Someone+Like+You+Adele+Cover&w=500&h=500&c=7&rs=1&p=0', videoUrl: 'https://www.youtube.com/watch?v=hLQl3WQQoQ0' },
-      { id: 212, title: 'Fix You', artist: 'Coldplay', duration: '4:55', cover: 'https://tse2.mm.bing.net/th?q=Fix+You+Coldplay+Cover&w=500&h=500&c=7&rs=1&p=0', videoUrl: 'https://www.youtube.com/watch?v=k4V3Mo61fJM' },
-      { id: 213, title: 'All of Me', artist: 'John Legend', duration: '5:00', cover: 'https://tse2.mm.bing.net/th?q=All+of+Me+John+Legend+Cover&w=500&h=500&c=7&rs=1&p=0', videoUrl: 'https://www.youtube.com/watch?v=450p7goxZqg' },
-      { id: 214, title: 'Say Something', artist: 'A Great Big World ft. Christina Aguilera', duration: '3:50', cover: 'https://tse2.mm.bing.net/th?q=Say+Something+A+Great+Big+World+Cover&w=500&h=500&c=7&rs=1&p=0', videoUrl: 'https://www.youtube.com/watch?v=-2U0Ivkn2Ds' }
+      { id: 211, title: 'Someone Like You', artist: 'Adele', duration: '4:45', cover: 'https://tse2.mm.bing.net/th?q=Someone+Like+You+Adele+Cover&w=500&h=500&c=7&rs=1&p=0', videoId: 'hLQl3WQQoQ0', videoUrl: 'https://www.youtube.com/watch?v=hLQl3WQQoQ0' },
+      { id: 212, title: 'Fix You', artist: 'Coldplay', duration: '4:55', cover: 'https://tse2.mm.bing.net/th?q=Fix+You+Coldplay+Cover&w=500&h=500&c=7&rs=1&p=0', videoId: 'k4V3Mo61fJM', videoUrl: 'https://www.youtube.com/watch?v=k4V3Mo61fJM' },
+      { id: 213, title: 'All of Me', artist: 'John Legend', duration: '5:00', cover: 'https://tse2.mm.bing.net/th?q=All+of+Me+John+Legend+Cover&w=500&h=500&c=7&rs=1&p=0', videoId: '450p7goxZqg', videoUrl: 'https://www.youtube.com/watch?v=450p7goxZqg' },
+      { id: 214, title: 'Say Something', artist: 'A Great Big World ft. Christina Aguilera', duration: '3:50', cover: 'https://tse2.mm.bing.net/th?q=Say+Something+A+Great+Big+World+Cover&w=500&h=500&c=7&rs=1&p=0', videoId: '-2U0Ivkn2Ds', videoUrl: 'https://www.youtube.com/watch?v=-2U0Ivkn2Ds' }
     ],
     Video: [
-      { id: 211, title: 'Someone Like You', artist: 'Adele', duration: '4:45', cover: 'https://tse2.mm.bing.net/th?q=Someone+Like+You+Adele+Cover&w=500&h=500&c=7&rs=1&p=0', videoUrl: 'https://www.youtube.com/watch?v=hLQl3WQQoQ0' },
-      { id: 212, title: 'Fix You', artist: 'Coldplay', duration: '4:55', cover: 'https://tse2.mm.bing.net/th?q=Fix+You+Coldplay+Cover&w=500&h=500&c=7&rs=1&p=0', videoUrl: 'https://www.youtube.com/watch?v=k4V3Mo61fJM' },
-      { id: 213, title: 'All of Me', artist: 'John Legend', duration: '5:00', cover: 'https://tse2.mm.bing.net/th?q=All+of+Me+John+Legend+Cover&w=500&h=500&c=7&rs=1&p=0', videoUrl: 'https://www.youtube.com/watch?v=450p7goxZqg' },
-      { id: 214, title: 'Say Something', artist: 'A Great Big World ft. Christina Aguilera', duration: '3:50', cover: 'https://tse2.mm.bing.net/th?q=Say+Something+A+Great+Big+World+Cover&w=500&h=500&c=7&rs=1&p=0', videoUrl: 'https://www.youtube.com/watch?v=-2U0Ivkn2Ds' }
+      { id: 211, title: 'Someone Like You', artist: 'Adele', duration: '4:45', cover: 'https://tse2.mm.bing.net/th?q=Someone+Like+You+Adele+Cover&w=500&h=500&c=7&rs=1&p=0', videoId: 'hLQl3WQQoQ0', videoUrl: 'https://www.youtube.com/watch?v=hLQl3WQQoQ0' },
+      { id: 212, title: 'Fix You', artist: 'Coldplay', duration: '4:55', cover: 'https://tse2.mm.bing.net/th?q=Fix+You+Coldplay+Cover&w=500&h=500&c=7&rs=1&p=0', videoId: 'k4V3Mo61fJM', videoUrl: 'https://www.youtube.com/watch?v=k4V3Mo61fJM' },
+      { id: 213, title: 'All of Me', artist: 'John Legend', duration: '5:00', cover: 'https://tse2.mm.bing.net/th?q=All+of+Me+John+Legend+Cover&w=500&h=500&c=7&rs=1&p=0', videoId: '450p7goxZqg', videoUrl: 'https://www.youtube.com/watch?v=450p7goxZqg' },
+      { id: 214, title: 'Say Something', artist: 'A Great Big World ft. Christina Aguilera', duration: '3:50', cover: 'https://tse2.mm.bing.net/th?q=Say+Something+A+Great+Big+World+Cover&w=500&h=500&c=7&rs=1&p=0', videoId: '-2U0Ivkn2Ds', videoUrl: 'https://www.youtube.com/watch?v=-2U0Ivkn2Ds' }
     ],
     Movie: [
       {
@@ -103,18 +123,18 @@ export const RECOMMENDATIONS: Record<string, {
   },
   Excited: {
     Music: [
-      { id: 301, title: 'Eye of the Tiger', artist: 'Survivor', duration: '4:05', cover: 'https://tse2.mm.bing.net/th?q=Eye+of+the+Tiger+Survivor+Cover&w=500&h=500&c=7&rs=1&p=0', videoUrl: 'https://www.youtube.com/watch?v=btPJPFnesV4' },
-      { id: 302, title: "Don't Stop Me Now", artist: 'Queen', duration: '3:30', cover: 'https://tse2.mm.bing.net/th?q=Don%27t+Stop+Me+Now+Queen+Cover&w=500&h=500&c=7&rs=1&p=0', videoUrl: 'https://www.youtube.com/watch?v=HgzGwKwLmgM' },
-      { id: 303, title: 'Lose Yourself', artist: 'Eminem', duration: '5:30', cover: 'https://tse2.mm.bing.net/th?q=Lose+Yourself+Eminem+Cover&w=500&h=500&c=7&rs=1&p=0', videoUrl: 'https://www.youtube.com/watch?v=_Yhyp-_hX2s' },
-      { id: 304, title: 'Stronger', artist: 'Kanye West', duration: '5:12', cover: 'https://tse2.mm.bing.net/th?q=Stronger+Kanye+West+Cover&w=500&h=500&c=7&rs=1&p=0', videoUrl: 'https://www.youtube.com/watch?v=PsO6ZnUZI0g' },
-      { id: 305, title: 'Till I Collapse', artist: 'Eminem ft. Nate Dogg', duration: '5:00', cover: 'https://tse2.mm.bing.net/th?q=Till+I+Collapse+Eminem+Cover&w=500&h=500&c=7&rs=1&p=0', videoUrl: 'https://www.youtube.com/watch?v=ytQ5CYE1VZw' }
+      { id: 301, title: 'Eye of the Tiger', artist: 'Survivor', duration: '4:05', cover: 'https://tse2.mm.bing.net/th?q=Eye+of+the+Tiger+Survivor+Cover&w=500&h=500&c=7&rs=1&p=0', videoId: 'btPJPFnesV4', videoUrl: 'https://www.youtube.com/watch?v=btPJPFnesV4' },
+      { id: 302, title: "Don't Stop Me Now", artist: 'Queen', duration: '3:30', cover: 'https://tse2.mm.bing.net/th?q=Don%27t+Stop+Me+Now+Queen+Cover&w=500&h=500&c=7&rs=1&p=0', videoId: 'HgzGwKwLmgM', videoUrl: 'https://www.youtube.com/watch?v=HgzGwKwLmgM' },
+      { id: 303, title: 'Lose Yourself', artist: 'Eminem', duration: '5:30', cover: 'https://tse2.mm.bing.net/th?q=Lose+Yourself+Eminem+Cover&w=500&h=500&c=7&rs=1&p=0', videoId: '_Yhyp-_hX2s', videoUrl: 'https://www.youtube.com/watch?v=_Yhyp-_hX2s' },
+      { id: 304, title: 'Stronger', artist: 'Kanye West', duration: '5:12', cover: 'https://tse2.mm.bing.net/th?q=Stronger+Kanye+West+Cover&w=500&h=500&c=7&rs=1&p=0', videoId: 'PsO6ZnUZI0g', videoUrl: 'https://www.youtube.com/watch?v=PsO6ZnUZI0g' },
+      { id: 305, title: 'Till I Collapse', artist: 'Eminem ft. Nate Dogg', duration: '5:00', cover: 'https://tse2.mm.bing.net/th?q=Till+I+Collapse+Eminem+Cover&w=500&h=500&c=7&rs=1&p=0', videoId: 'ytQ5CYE1VZw', videoUrl: 'https://www.youtube.com/watch?v=ytQ5CYE1VZw' }
     ],
     Video: [
-      { id: 301, title: 'Eye of the Tiger', artist: 'Survivor', duration: '4:05', cover: 'https://tse2.mm.bing.net/th?q=Eye+of+the+Tiger+Survivor+Cover&w=500&h=500&c=7&rs=1&p=0', videoUrl: 'https://www.youtube.com/watch?v=btPJPFnesV4' },
-      { id: 302, title: "Don't Stop Me Now", artist: 'Queen', duration: '3:30', cover: 'https://tse2.mm.bing.net/th?q=Don%27t+Stop+Me+Now+Queen+Cover&w=500&h=500&c=7&rs=1&p=0', videoUrl: 'https://www.youtube.com/watch?v=HgzGwKwLmgM' },
-      { id: 303, title: 'Lose Yourself', artist: 'Eminem', duration: '5:30', cover: 'https://tse2.mm.bing.net/th?q=Lose+Yourself+Eminem+Cover&w=500&h=500&c=7&rs=1&p=0', videoUrl: 'https://www.youtube.com/watch?v=_Yhyp-_hX2s' },
-      { id: 304, title: 'Stronger', artist: 'Kanye West', duration: '5:12', cover: 'https://tse2.mm.bing.net/th?q=Stronger+Kanye+West+Cover&w=500&h=500&c=7&rs=1&p=0', videoUrl: 'https://www.youtube.com/watch?v=PsO6ZnUZI0g' },
-      { id: 305, title: 'Till I Collapse', artist: 'Eminem ft. Nate Dogg', duration: '5:00', cover: 'https://tse2.mm.bing.net/th?q=Till+I+Collapse+Eminem+Cover&w=500&h=500&c=7&rs=1&p=0', videoUrl: 'https://www.youtube.com/watch?v=ytQ5CYE1VZw' }
+      { id: 301, title: 'Eye of the Tiger', artist: 'Survivor', duration: '4:05', cover: 'https://tse2.mm.bing.net/th?q=Eye+of+the+Tiger+Survivor+Cover&w=500&h=500&c=7&rs=1&p=0', videoId: 'btPJPFnesV4', videoUrl: 'https://www.youtube.com/watch?v=btPJPFnesV4' },
+      { id: 302, title: "Don't Stop Me Now", artist: 'Queen', duration: '3:30', cover: 'https://tse2.mm.bing.net/th?q=Don%27t+Stop+Me+Now+Queen+Cover&w=500&h=500&c=7&rs=1&p=0', videoId: 'HgzGwKwLmgM', videoUrl: 'https://www.youtube.com/watch?v=HgzGwKwLmgM' },
+      { id: 303, title: 'Lose Yourself', artist: 'Eminem', duration: '5:30', cover: 'https://tse2.mm.bing.net/th?q=Lose+Yourself+Eminem+Cover&w=500&h=500&c=7&rs=1&p=0', videoId: '_Yhyp-_hX2s', videoUrl: 'https://www.youtube.com/watch?v=_Yhyp-_hX2s' },
+      { id: 304, title: 'Stronger', artist: 'Kanye West', duration: '5:12', cover: 'https://tse2.mm.bing.net/th?q=Stronger+Kanye+West+Cover&w=500&h=500&c=7&rs=1&p=0', videoId: 'PsO6ZnUZI0g', videoUrl: 'https://www.youtube.com/watch?v=PsO6ZnUZI0g' },
+      { id: 305, title: 'Till I Collapse', artist: 'Eminem ft. Nate Dogg', duration: '5:00', cover: 'https://tse2.mm.bing.net/th?q=Till+I+Collapse+Eminem+Cover&w=500&h=500&c=7&rs=1&p=0', videoId: 'ytQ5CYE1VZw', videoUrl: 'https://www.youtube.com/watch?v=ytQ5CYE1VZw' }
     ],
     Movie: [
       {
@@ -138,3 +158,6 @@ export const RECOMMENDATIONS: Record<string, {
     ]
   }
 };
+
+// Keep backward compatibility - alias for old code that uses RECOMMENDATIONS
+export const RECOMMENDATIONS = FALLBACK_RECOMMENDATIONS;
