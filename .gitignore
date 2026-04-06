@@ -42,7 +42,7 @@ npm-debug.log
 yarn-error.log
 
 # Backend secrets
-#backend/.env
+backend/.env
 
 # fastlane
 #
