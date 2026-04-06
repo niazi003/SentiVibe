@@ -1,15 +1,17 @@
 /**
  * PlayerScreen — Global Music/Video Player
  * 
- * REFACTORED: Now uses PlayerContext for all playback state.
- * Single YouTube player instance via react-native-youtube-iframe.
+ * ARCHITECTURE: Single YouTube player instance for both audio and video modes.
+ * In music mode, the player is hidden offscreen and album art is shown.
+ * In video mode, the player is shown at full 16:9 size.
  * 
  * KEY BEHAVIORS:
  * - Music tab: Shows album art + custom controls + progress bar
- * - Video tab: Shows YouTube player + controls
- * - Switching tabs does NOT restart playback
+ * - Video tab: Shows YouTube player + controls + progress bar
+ * - Switching tabs does NOT restart playback (same player instance)
  * - Queue management through PlayerContext
- * - Real progress bar synced with YouTube player
+ * - Real progress bar synced with YouTube player via polling
+ * - Seek support via playerRef.seekTo()
  */
 
 import React, { useCallback, useContext, useRef } from 'react';
@@ -72,6 +74,17 @@ export const PlayerScreen: React.FC = () => {
      * Calculate progress percentage for the progress bar
      */
     const progressPercent = duration > 0 ? (currentTime / duration) * 100 : 0;
+
+    /**
+     * Handle seeking when user taps on the progress bar
+     */
+    const handleSeek = useCallback((e: any) => {
+        if (duration > 0 && playerRef.current) {
+            const percent = Math.max(0, Math.min(1, e.nativeEvent.locationX / trackWidth));
+            const seekTime = percent * duration;
+            playerRef.current.seekTo(seekTime);
+        }
+    }, [duration, trackWidth]);
 
     /**
      * Handle YouTube player state changes — sync with PlayerContext
@@ -155,43 +168,42 @@ export const PlayerScreen: React.FC = () => {
                 contentContainerStyle={styles.mainContentInner}
                 showsVerticalScrollIndicator={false}
             >
-                {/* ALWAYS RENDER YOUTUBE PLAYER, OVERLAY ALBUM ART IN MUSIC MODE */}
-                {videoId && (
-                    <View style={[styles.coverContainer, isVideoMode && styles.coverVideo]}>
-                        <View pointerEvents={isVideoMode ? "auto" : "none"}>
-                            <YouTubePlayer
-                                ref={playerRef}
-                                videoId={videoId}
-                                height={isVideoMode ? videoHeight : screenWidth - 48}
-                                autoplay={true}
-                                isPlaying={isPlaying}
-                                onStateChange={handleStateChange}
-                                onProgress={handleProgress}
-                            />
-                        </View>
+                {/* ===== VIDEO MODE: Show the YouTube player visually ===== */}
+                {isVideoMode && videoId && (
+                    <View style={styles.videoContainer}>
+                        <YouTubePlayer
+                            ref={playerRef}
+                            videoId={videoId}
+                            height={videoHeight}
+                            autoplay={true}
+                            isPlaying={isPlaying}
+                            onStateChange={handleStateChange}
+                            onProgress={handleProgress}
+                        />
+                    </View>
+                )}
 
-                        {/* Music Mode: Show album art with play overlay OVER the hidden video */}
-                        {!isVideoMode && (
-                            <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
-                                <Image
-                                    source={{ uri: currentTrack.albumArt || currentTrack.cover }}
-                                    style={[styles.coverImage, { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }]}
+                {/* ===== MUSIC MODE: Show album art with play overlay ===== */}
+                {!isVideoMode && (
+                    <View style={styles.coverContainer}>
+                        <Image
+                            source={{ uri: currentTrack.albumArt || currentTrack.cover }}
+                            style={styles.coverImage}
+                        />
+                        <TouchableOpacity
+                            style={[styles.playOverlay, isPlaying && styles.playOverlayHidden]}
+                            onPress={togglePlay}
+                            activeOpacity={0.8}
+                        >
+                            <View style={styles.playOverlayBtn}>
+                                <Icon
+                                    name={isPlaying ? 'pause' : 'play'}
+                                    size={32}
+                                    color="#FFFFFF"
+                                    style={ICON_STYLE}
                                 />
-                                <TouchableOpacity
-                                    style={[styles.playOverlay, isPlaying && styles.playOverlayHidden]}
-                                    onPress={togglePlay}
-                                >
-                                    <View style={styles.playOverlayBtn}>
-                                        <Icon
-                                            name={isPlaying ? 'pause' : 'play'}
-                                            size={32}
-                                            color="#FFFFFF"
-                                            style={ICON_STYLE}
-                                        />
-                                    </View>
-                                </TouchableOpacity>
                             </View>
-                        )}
+                        </TouchableOpacity>
                     </View>
                 )}
 
@@ -211,32 +223,25 @@ export const PlayerScreen: React.FC = () => {
                     </View>
                 </View>
 
-                {/* Progress Bar — Now shows REAL progress from YouTube player */}
-                {!isVideoMode && (
-                    <View style={styles.progressContainer}>
-                        <TouchableOpacity 
-                            style={styles.progressTrack}
-                            activeOpacity={1}
-                            onPress={(e) => {
-                                if (duration > 0 && playerRef.current) {
-                                    const percent = Math.max(0, Math.min(1, e.nativeEvent.locationX / trackWidth));
-                                    playerRef.current.seekTo(percent * duration);
-                                }
-                            }}
-                        >
-                            <View style={[styles.progressFill, { width: `${Math.min(progressPercent, 100)}%` }]} />
-                            <View style={[styles.progressThumb, { left: `${Math.min(progressPercent, 100)}%` }]} />
-                        </TouchableOpacity>
-                        <View style={styles.progressTimes}>
-                            <Text style={styles.progressTime}>{formatTime(currentTime)}</Text>
-                            <Text style={styles.progressTime}>
-                                {duration > 0 ? formatTime(duration) : (currentTrack.duration || '0:00')}
-                            </Text>
-                        </View>
+                {/* Progress Bar — Shows in BOTH modes, synced with YouTube player */}
+                <View style={styles.progressContainer}>
+                    <TouchableOpacity
+                        style={styles.progressTrack}
+                        activeOpacity={1}
+                        onPress={handleSeek}
+                    >
+                        <View style={[styles.progressFill, { width: `${Math.min(progressPercent, 100)}%` }]} />
+                        <View style={[styles.progressThumb, { left: `${Math.min(progressPercent, 100)}%` }]} />
+                    </TouchableOpacity>
+                    <View style={styles.progressTimes}>
+                        <Text style={styles.progressTime}>{formatTime(currentTime)}</Text>
+                        <Text style={styles.progressTime}>
+                            {duration > 0 ? formatTime(duration) : (currentTrack.duration || '0:00')}
+                        </Text>
                     </View>
-                )}
+                </View>
 
-                {/* Playback Controls */}
+                {/* Playback Controls — Always visible in both modes */}
                 <View style={styles.controls}>
                     <TouchableOpacity>
                         <Icon name="shuffle" size={20} color="#94A3B8" />
@@ -247,23 +252,21 @@ export const PlayerScreen: React.FC = () => {
                     >
                         <Icon name="skip-back" size={32} color={history.length === 0 ? "#475569" : "#FFFFFF"} />
                     </TouchableOpacity>
-                    {!isVideoMode && (
-                        <TouchableOpacity
-                            style={styles.mainPlayBtn}
-                            onPress={togglePlay}
+                    <TouchableOpacity
+                        style={styles.mainPlayBtn}
+                        onPress={togglePlay}
+                    >
+                        <LinearGradient
+                            colors={['#2563EB', '#4F46E5']}
+                            style={styles.mainPlayBtnGradient}
                         >
-                            <LinearGradient
-                                colors={['#2563EB', '#4F46E5']}
-                                style={styles.mainPlayBtnGradient}
-                            >
-                                <Icon
-                                    name={isPlaying ? 'pause' : 'play'}
-                                    size={32}
-                                    color="#FFFFFF"
-                                />
-                            </LinearGradient>
-                        </TouchableOpacity>
-                    )}
+                            <Icon
+                                name={isPlaying ? 'pause' : 'play'}
+                                size={32}
+                                color="#FFFFFF"
+                            />
+                        </LinearGradient>
+                    </TouchableOpacity>
                     <TouchableOpacity
                         onPress={next}
                         style={[styles.controlBtn, queue.length === 0 && styles.controlDisabled]}
@@ -307,12 +310,16 @@ export const PlayerScreen: React.FC = () => {
                 )}
             </ScrollView>
 
-            {/* Hidden YouTube player for audio mode — keeps audio playing */}
+            {/* ===== SINGLE HIDDEN YOUTUBE PLAYER FOR AUDIO MODE ===== */}
+            {/* This is the ONLY player instance. In music mode it plays audio offscreen.
+                In video mode, the visible player above takes over (this one unmounts). */}
             {!isVideoMode && videoId && (
                 <View style={styles.hiddenPlayer}>
                     <YouTubePlayer
+                        ref={playerRef}
                         videoId={videoId}
-                        height={1}
+                        height={200}
+                        autoplay={true}
                         isPlaying={isPlaying}
                         onStateChange={handleStateChange}
                         onProgress={handleProgress}
@@ -414,6 +421,17 @@ const styles = StyleSheet.create({
         padding: 24,
         paddingBottom: 48,
     },
+    // Video mode: visible YouTube player
+    videoContainer: {
+        width: '100%',
+        borderRadius: 12,
+        overflow: 'hidden',
+        marginBottom: 40,
+        backgroundColor: '#000',
+        borderWidth: 1,
+        borderColor: 'rgba(255, 255, 255, 0.1)',
+    },
+    // Music mode: album art cover
     coverContainer: {
         width: '100%',
         aspectRatio: 1,
@@ -428,10 +446,6 @@ const styles = StyleSheet.create({
         shadowOpacity: 0.4,
         shadowRadius: 30,
         elevation: 15,
-    },
-    coverVideo: {
-        aspectRatio: 16 / 9,
-        borderRadius: 12,
     },
     coverImage: {
         width: '100%',
