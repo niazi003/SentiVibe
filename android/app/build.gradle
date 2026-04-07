@@ -87,6 +87,11 @@ android {
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
         versionName "1.0"
+
+        // react-native-app-auth uses this placeholder for its redirect intent-filter
+        manifestPlaceholders = [
+                appAuthRedirectScheme: "sentivibe"
+        ]
     }
     signingConfigs {
         debug {

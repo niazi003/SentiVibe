@@ -24,6 +24,7 @@ type PlayerAction =
     | { type: 'PLAY_TRACK'; track: MediaItem; queue?: MediaItem[] }
     | { type: 'PAUSE' }
     | { type: 'RESUME' }
+    | { type: 'SET_PLAYING'; isPlaying: boolean }
     | { type: 'NEXT' }
     | { type: 'PREVIOUS' }
     | { type: 'SET_VIDEO_MODE'; isVideo: boolean }
@@ -64,6 +65,9 @@ function playerReducer(state: PlayerState, action: PlayerAction): PlayerState {
 
         case 'RESUME':
             return { ...state, isPlaying: true };
+
+        case 'SET_PLAYING':
+            return { ...state, isPlaying: action.isPlaying };
 
         case 'NEXT':
             if (state.queue.length === 0) return state;
@@ -141,6 +145,7 @@ interface PlayerContextType {
     pause: () => void;
     resume: () => void;
     togglePlay: () => void;
+    setPlaying: (isPlaying: boolean) => void;
     next: () => void;
     previous: () => void;
     setVideoMode: (isVideo: boolean) => void;
@@ -182,6 +187,7 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         pause: () => dispatch({ type: 'PAUSE' }),
         resume: () => dispatch({ type: 'RESUME' }),
         togglePlay: () => dispatch({ type: state.isPlaying ? 'PAUSE' : 'RESUME' }),
+        setPlaying: (isPlaying) => dispatch({ type: 'SET_PLAYING', isPlaying }),
         next: () => dispatch({ type: 'NEXT' }),
         previous: () => dispatch({ type: 'PREVIOUS' }),
         setVideoMode: (isVideo) => dispatch({ type: 'SET_VIDEO_MODE', isVideo }),

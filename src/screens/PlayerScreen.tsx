@@ -14,7 +14,7 @@
  * - Seek support via playerRef.seekTo()
  */
 
-import React, { useCallback, useContext, useRef } from 'react';
+import React, { useCallback, useContext, useEffect, useRef } from 'react';
 import {
     View,
     Text,
@@ -33,6 +33,16 @@ import { NavigationProp, MediaItem } from '../types';
 import { AppContext } from '../context/AppContext';
 import { usePlayer } from '../context/PlayerContext';
 import { ICON_STYLE } from '../constants';
+import {
+    onPlayerStateChanged,
+    getPlayerState,
+    playTrack as spotifyPlayTrack,
+    pausePlayback,
+    resumePlayback,
+    seekTo as spotifySeekTo,
+    skipNext as spotifySkipNext,
+    skipPrevious as spotifySkipPrevious,
+} from '../services/spotify';
 
 export const PlayerScreen: React.FC = () => {
     const navigation = useNavigation<NavigationProp>();
@@ -45,6 +55,7 @@ export const PlayerScreen: React.FC = () => {
         pause,
         resume,
         togglePlay,
+        setPlaying,
         next,
         previous,
         setVideoMode,
@@ -79,12 +90,117 @@ export const PlayerScreen: React.FC = () => {
      * Handle seeking when user taps on the progress bar
      */
     const handleSeek = useCallback((e: any) => {
-        if (duration > 0 && playerRef.current) {
-            const percent = Math.max(0, Math.min(1, e.nativeEvent.locationX / trackWidth));
-            const seekTime = percent * duration;
-            playerRef.current.seekTo(seekTime);
+        if (duration <= 0) return;
+        const percent = Math.max(0, Math.min(1, e.nativeEvent.locationX / trackWidth));
+        const seekTime = percent * duration;
+
+        if (isVideoMode) {
+            if (playerRef.current) {
+                playerRef.current.seekTo(seekTime);
+            }
+        } else {
+            // Spotify Remote expects milliseconds
+            spotifySeekTo(Math.floor(seekTime * 1000));
         }
-    }, [duration, trackWidth]);
+    }, [duration, trackWidth, isVideoMode]);
+
+    /**
+     * Music mode: when track changes, drive playback via Spotify Remote.
+     */
+    useEffect(() => {
+        if (isVideoMode) return;
+        const spotifyId = currentTrack?.spotifyId;
+        if (!spotifyId) return;
+        spotifyPlayTrack(spotifyId);
+    }, [currentTrack?.id, currentTrack?.spotifyId, isVideoMode]);
+
+    /**
+     * Music mode: subscribe to Spotify playback state and sync progress + play/pause.
+     */
+    useEffect(() => {
+        if (isVideoMode) return;
+
+        let unsub: (() => void) | null = null;
+        let cancelled = false;
+        const pollMs = 1000;
+        let pollTimer: any = null;
+
+        (async () => {
+            // Prime UI with current state ASAP (in case no event fires immediately)
+            const state = await getPlayerState();
+            if (!cancelled && state) {
+                setTime(state.playbackPosition / 1000, state.duration / 1000);
+                setPlaying(!state.isPaused);
+            }
+        })();
+
+        unsub = onPlayerStateChanged((rawState: any) => {
+            const playbackPositionMs = rawState?.playbackPosition ?? 0;
+            const durationMs = rawState?.track?.duration ?? 0;
+            const isPaused = rawState?.isPaused ?? true;
+
+            setTime(playbackPositionMs / 1000, durationMs / 1000);
+            setPlaying(!isPaused);
+        });
+
+        // Spotify Web API has no push events; poll as a reliable fallback.
+        pollTimer = setInterval(async () => {
+            const state = await getPlayerState();
+            if (!cancelled && state) {
+                setTime(state.playbackPosition / 1000, state.duration / 1000);
+                setPlaying(!state.isPaused);
+            }
+        }, pollMs);
+
+        return () => {
+            cancelled = true;
+            unsub?.();
+            if (pollTimer) clearInterval(pollTimer);
+        };
+    }, [isVideoMode, setPlaying, setTime]);
+
+    const handleTogglePlay = useCallback(async () => {
+        if (isVideoMode) {
+            togglePlay();
+            return;
+        }
+
+        if (isPlaying) {
+            await pausePlayback();
+            pause();
+        } else {
+            await resumePlayback();
+            resume();
+        }
+    }, [isVideoMode, isPlaying, pause, resume, togglePlay]);
+
+    const handleNext = useCallback(async () => {
+        if (isVideoMode) {
+            next();
+            return;
+        }
+
+        if (queue.length > 0) {
+            next(); // will trigger spotifyPlayTrack via effect
+            return;
+        }
+
+        await spotifySkipNext();
+    }, [isVideoMode, next, queue.length]);
+
+    const handlePrevious = useCallback(async () => {
+        if (isVideoMode) {
+            previous();
+            return;
+        }
+
+        if (history.length > 0) {
+            previous(); // will trigger spotifyPlayTrack via effect
+            return;
+        }
+
+        await spotifySkipPrevious();
+    }, [isVideoMode, previous, history.length]);
 
     /**
      * Handle YouTube player state changes — sync with PlayerContext
@@ -192,7 +308,7 @@ export const PlayerScreen: React.FC = () => {
                         />
                         <TouchableOpacity
                             style={[styles.playOverlay, isPlaying && styles.playOverlayHidden]}
-                            onPress={togglePlay}
+                            onPress={handleTogglePlay}
                             activeOpacity={0.8}
                         >
                             <View style={styles.playOverlayBtn}>
@@ -247,14 +363,14 @@ export const PlayerScreen: React.FC = () => {
                         <Icon name="shuffle" size={20} color="#94A3B8" />
                     </TouchableOpacity>
                     <TouchableOpacity
-                        onPress={previous}
+                        onPress={handlePrevious}
                         style={[styles.controlBtn, history.length === 0 && styles.controlDisabled]}
                     >
                         <Icon name="skip-back" size={32} color={history.length === 0 ? "#475569" : "#FFFFFF"} />
                     </TouchableOpacity>
                     <TouchableOpacity
                         style={styles.mainPlayBtn}
-                        onPress={togglePlay}
+                        onPress={handleTogglePlay}
                     >
                         <LinearGradient
                             colors={['#2563EB', '#4F46E5']}
@@ -268,7 +384,7 @@ export const PlayerScreen: React.FC = () => {
                         </LinearGradient>
                     </TouchableOpacity>
                     <TouchableOpacity
-                        onPress={next}
+                        onPress={handleNext}
                         style={[styles.controlBtn, queue.length === 0 && styles.controlDisabled]}
                     >
                         <Icon name="skip-forward" size={32} color={queue.length === 0 ? "#475569" : "#FFFFFF"} />
@@ -309,23 +425,6 @@ export const PlayerScreen: React.FC = () => {
                     </View>
                 )}
             </ScrollView>
-
-            {/* ===== SINGLE HIDDEN YOUTUBE PLAYER FOR AUDIO MODE ===== */}
-            {/* This is the ONLY player instance. In music mode it plays audio offscreen.
-                In video mode, the visible player above takes over (this one unmounts). */}
-            {!isVideoMode && videoId && (
-                <View style={styles.hiddenPlayer}>
-                    <YouTubePlayer
-                        ref={playerRef}
-                        videoId={videoId}
-                        height={200}
-                        autoplay={true}
-                        isPlaying={isPlaying}
-                        onStateChange={handleStateChange}
-                        onProgress={handleProgress}
-                    />
-                </View>
-            )}
         </SafeAreaView>
     );
 };
@@ -658,15 +757,5 @@ const styles = StyleSheet.create({
         fontSize: 12,
         color: '#475569',
         fontFamily: 'monospace',
-    },
-    // Hidden player for audio mode (plays audio without showing video)
-    hiddenPlayer: {
-        position: 'absolute',
-        top: -1000,
-        left: 0,
-        width: 300,
-        height: 200,
-        opacity: 0.01,
-        overflow: 'hidden',
     },
 });

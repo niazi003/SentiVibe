@@ -15,6 +15,7 @@ const cors = require('cors');
 const NodeCache = require('node-cache');
 const { getRecommendationsByMood } = require('./services/spotify');
 const { findVideosForTracks } = require('./services/youtube');
+const { swapToken, refreshToken } = require('./services/auth');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -149,6 +150,43 @@ app.get('/api/recommendations', async (req, res) => {
 app.post('/api/cache/clear', (req, res) => {
   cache.flushAll();
   res.json({ message: 'Cache cleared' });
+});
+
+// --------------------------------
+// Spotify Auth Endpoints
+// --------------------------------
+app.post('/api/auth/swap', async (req, res) => {
+  try {
+    const { code } = req.body;
+    if (!code) {
+      return res.status(400).json({ error: 'Missing authorization code' });
+    }
+    const tokens = await swapToken(code);
+    res.json(tokens);
+  } catch (error) {
+    console.error('[Auth] Token swap error:', error.response?.data || error.message);
+    res.status(error.response?.status || 500).json({
+      error: 'Token swap failed',
+      message: error.response?.data?.error_description || error.message,
+    });
+  }
+});
+
+app.post('/api/auth/refresh', async (req, res) => {
+  try {
+    const { refresh_token } = req.body;
+    if (!refresh_token) {
+      return res.status(400).json({ error: 'Missing refresh token' });
+    }
+    const tokens = await refreshToken(refresh_token);
+    res.json(tokens);
+  } catch (error) {
+    console.error('[Auth] Token refresh error:', error.response?.data || error.message);
+    res.status(error.response?.status || 500).json({
+      error: 'Token refresh failed',
+      message: error.response?.data?.error_description || error.message,
+    });
+  }
 });
 
 // Start server

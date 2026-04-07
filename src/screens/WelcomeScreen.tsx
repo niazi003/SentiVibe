@@ -1,19 +1,16 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView } from 'react-native';
+import React from 'react';
+import { View, Text, StyleSheet, ScrollView, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/Feather';
 import LinearGradient from 'react-native-linear-gradient';
 import { GlassCard, Button } from '../components';
 import { NavigationProp } from '../types';
+import { useSpotify } from '../context/SpotifyContext';
 
 export const WelcomeScreen: React.FC = () => {
     const navigation = useNavigation<NavigationProp>();
-    const [spotifyConnected, setSpotifyConnected] = useState(false);
-
-    const handleSpotifyConnect = () => {
-        setSpotifyConnected(true);
-    };
+    const { isConnected: spotifyConnected, isConnecting, connect: handleSpotifyConnect } = useSpotify();
 
     return (
         <SafeAreaView style={styles.container} edges={['top']}>
@@ -69,7 +66,11 @@ export const WelcomeScreen: React.FC = () => {
                         onPress={handleSpotifyConnect}
                         style={spotifyConnected ? styles.connectedButton : undefined}
                     >
-                        {spotifyConnected ? (
+                        {isConnecting ? (
+                            <>
+                                <ActivityIndicator size="small" color="#000" /> Connecting...
+                            </>
+                        ) : spotifyConnected ? (
                             <>
                                 <Icon name="check" size={18} color="#000" /> Connected
                             </>
