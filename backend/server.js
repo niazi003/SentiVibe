@@ -4,9 +4,25 @@
  * Express API that orchestrates:
  * 1. Spotify API — mood-based track recommendations
  * 2. YouTube API — find music video IDs for each track
- * 3. Caching — avoid redundant API calls (1 hour TTL)
+ * 3. Python AI service — LLaMA 3 chatbot with RAG
+ * 4. Python Emotion Detection — text/face/voice ML models
+ * 5. User profiles & feedback tracking
+ * 6. Caching — avoid redundant API calls (1 hour TTL)
  * 
- * Main endpoint: GET /api/recommendations?mood=happy
+ * All services are proxied through this single backend.
+ * The mobile app only needs to talk to THIS server.
+ * 
+ * Endpoints:
+ *   GET  /api/health                      — Health check (all services)
+ *   GET  /api/recommendations?mood=happy  — Mood-based music (Spotify + YouTube)
+ *   POST /api/chat                        — AI chatbot (Python/LLaMA)
+ *   POST /api/recommend                   — Personalized recommendations
+ *   POST /api/feedback                    — Track feedback (like/skip)
+ *   POST /api/detect/text                 — Emotion from text
+ *   POST /api/detect/face                 — Emotion from camera image
+ *   POST /api/auth/swap                   — Spotify OAuth token swap
+ *   POST /api/auth/refresh                — Spotify OAuth token refresh
+ *   POST /api/cache/clear                 — Dev: clear recommendation cache
  */
 
 require('dotenv').config();
@@ -17,6 +33,12 @@ const { getRecommendationsByMood } = require('./services/spotify');
 const { findVideosForTracks } = require('./services/youtube');
 const { swapToken, refreshToken } = require('./services/auth');
 
+// ── Route imports ─────────────────────────────────────────────
+const chatRoutes = require('./routes/chat');
+const recommendRoutes = require('./routes/recommend');
+const feedbackRoutes = require('./routes/feedback');
+const detectRoutes = require('./routes/detect');
+
 const app = express();
 const PORT = process.env.PORT || 3001;
 
@@ -26,28 +48,27 @@ const cache = new NodeCache({ stdTTL: 3600, checkperiod: 600 });
 
 // Enable CORS for React Native (all origins in dev)
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '10mb' })); // increased for base64 images
 
-// ---------------------
-// Health Check Endpoint
-// ---------------------
+// ── Health Check ──────────────────────────────────────────────
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
     timestamp: new Date().toISOString(),
     services: {
       spotify: !!process.env.SPOTIFY_CLIENT_ID,
-      youtube: !!process.env.YOUTUBE_API_KEY && process.env.YOUTUBE_API_KEY !== 'YOUR_YOUTUBE_API_KEY_HERE',
+      youtube:
+        !!process.env.YOUTUBE_API_KEY &&
+        process.env.YOUTUBE_API_KEY !== 'YOUR_YOUTUBE_API_KEY_HERE',
+      ai: !!process.env.AI_SERVICE_URL,
+      emotion: !!process.env.EMOTION_SERVICE_URL,
     },
   });
 });
 
-// --------------------------------
-// Main Recommendations Endpoint
-// --------------------------------
+// ── Mobile App: Mood-based Recommendations ────────────────────
 // GET /api/recommendations?mood=happy&limit=10
-//
-// Pipeline: mood → Spotify genres → track list → YouTube video search → merged results
+// Pipeline: mood → Spotify search → YouTube video lookup → merged result
 app.get('/api/recommendations', async (req, res) => {
   try {
     const { mood, limit = 10 } = req.query;
@@ -76,7 +97,10 @@ app.get('/api/recommendations', async (req, res) => {
     console.log(`[Cache] MISS for mood: ${mood}, fetching fresh data...`);
 
     // Step 1: Get track recommendations from Spotify (or fallback)
-    const { tracks: spotifyTracks, source } = await getRecommendationsByMood(mood, parseInt(limit));
+    const { tracks: spotifyTracks, source } = await getRecommendationsByMood(
+      mood,
+      parseInt(limit)
+    );
 
     if (!spotifyTracks || spotifyTracks.length === 0) {
       return res.status(404).json({
@@ -87,9 +111,13 @@ app.get('/api/recommendations', async (req, res) => {
 
     // Step 2: Find YouTube videos for each track
     // Skip YouTube search if tracks already have videoIds (from fallback data)
-    const hasVideoIds = spotifyTracks.some(t => t.videoId);
+    const hasVideoIds = spotifyTracks.some((t) => t.videoId);
     const youtubeResults = hasVideoIds
-      ? spotifyTracks.map(t => t.videoId ? { videoId: t.videoId, youtubeTitle: t.title, thumbnail: null } : null)
+      ? spotifyTracks.map((t) =>
+          t.videoId
+            ? { videoId: t.videoId, youtubeTitle: t.title, thumbnail: null }
+            : null
+        )
       : await findVideosForTracks(spotifyTracks);
 
     // Step 3: Merge Spotify + YouTube data into final response
@@ -107,7 +135,9 @@ app.get('/api/recommendations', async (req, res) => {
         albumArt: track.albumArt,
         videoId: videoId,
         youtubeTitle: youtube?.youtubeTitle || null,
-        videoUrl: videoId ? `https://www.youtube.com/watch?v=${videoId}` : null,
+        videoUrl: videoId
+          ? `https://www.youtube.com/watch?v=${videoId}`
+          : null,
       };
     });
 
@@ -121,17 +151,26 @@ app.get('/api/recommendations', async (req, res) => {
       count: mergedTracks.length,
       source, // 'spotify' or 'fallback'
     });
-
   } catch (error) {
     // Spotify SDK throws objects with body/statusCode, not standard Errors
-    // Log full error for debugging
     console.error('[Server] Full error:', JSON.stringify(error, null, 2));
-    const errMsg = error.message || error.body?.error?.message || (typeof error === 'object' ? JSON.stringify(error) : String(error));
+    const errMsg =
+      error.message ||
+      error.body?.error?.message ||
+      (typeof error === 'object' ? JSON.stringify(error) : String(error));
     const errCode = error.statusCode || error.body?.error?.status || 500;
-    console.error('[Server] Recommendation error:', errMsg, '| Status:', errCode);
+    console.error(
+      '[Server] Recommendation error:',
+      errMsg,
+      '| Status:',
+      errCode
+    );
 
-    // Differentiate between auth errors and other failures
-    if (errCode === 401 || errMsg?.includes('401') || errMsg?.includes('Unauthorized')) {
+    if (
+      errCode === 401 ||
+      errMsg?.includes('401') ||
+      errMsg?.includes('Unauthorized')
+    ) {
       return res.status(401).json({
         error: 'Spotify authentication failed. Check your API credentials.',
       });
@@ -144,17 +183,7 @@ app.get('/api/recommendations', async (req, res) => {
   }
 });
 
-// --------------------------------
-// Clear cache endpoint (for dev)
-// --------------------------------
-app.post('/api/cache/clear', (req, res) => {
-  cache.flushAll();
-  res.json({ message: 'Cache cleared' });
-});
-
-// --------------------------------
-// Spotify Auth Endpoints
-// --------------------------------
+// ── Spotify Auth (Mobile OAuth flow) ──────────────────────────
 app.post('/api/auth/swap', async (req, res) => {
   try {
     const { code } = req.body;
@@ -164,7 +193,10 @@ app.post('/api/auth/swap', async (req, res) => {
     const tokens = await swapToken(code);
     res.json(tokens);
   } catch (error) {
-    console.error('[Auth] Token swap error:', error.response?.data || error.message);
+    console.error(
+      '[Auth] Token swap error:',
+      error.response?.data || error.message
+    );
     res.status(error.response?.status || 500).json({
       error: 'Token swap failed',
       message: error.response?.data?.error_description || error.message,
@@ -181,7 +213,10 @@ app.post('/api/auth/refresh', async (req, res) => {
     const tokens = await refreshToken(refresh_token);
     res.json(tokens);
   } catch (error) {
-    console.error('[Auth] Token refresh error:', error.response?.data || error.message);
+    console.error(
+      '[Auth] Token refresh error:',
+      error.response?.data || error.message
+    );
     res.status(error.response?.status || 500).json({
       error: 'Token refresh failed',
       message: error.response?.data?.error_description || error.message,
@@ -189,9 +224,35 @@ app.post('/api/auth/refresh', async (req, res) => {
   }
 });
 
-// Start server
+// ── Cache clear (dev utility) ─────────────────────────────────
+app.post('/api/cache/clear', (req, res) => {
+  cache.flushAll();
+  res.json({ message: 'Cache cleared' });
+});
+
+// ── AI & Detection Routes (Python microservices) ──────────────
+app.use('/api/chat', chatRoutes);
+app.use('/api/recommend', recommendRoutes);
+app.use('/api/feedback', feedbackRoutes);
+app.use('/api/detect', detectRoutes);
+
+// ── 404 handler ───────────────────────────────────────────────
+app.use((req, res) => {
+  res.status(404).json({ error: 'Route not found' });
+});
+
+// ── Global error handler ──────────────────────────────────────
+app.use((err, req, res, next) => {
+  console.error('[SentiVibe Error]', err);
+  res.status(500).json({ error: 'Internal server error', message: err.message });
+});
+
+// ── Start ─────────────────────────────────────────────────────
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`\n🎵 SentiVibe API running on http://localhost:${PORT}`);
-  console.log(`   Health: http://localhost:${PORT}/api/health`);
-  console.log(`   Try:    http://localhost:${PORT}/api/recommendations?mood=happy\n`);
+  console.log(`\n🎵 SentiVibe backend running on http://localhost:${PORT}`);
+  console.log(`   Health:          http://localhost:${PORT}/api/health`);
+  console.log(`   Recommendations: http://localhost:${PORT}/api/recommendations?mood=happy`);
+  console.log(`   Chat (AI):       http://localhost:${PORT}/api/chat`);
+  console.log(`   Detection:       http://localhost:${PORT}/api/detect/text`);
+  console.log(`   Feedback:        http://localhost:${PORT}/api/feedback\n`);
 });

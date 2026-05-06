@@ -7,7 +7,8 @@ import {
     TouchableOpacity,
     Platform,
     ScrollView,
-    ImageBackground
+    ImageBackground,
+    ActivityIndicator
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
@@ -17,6 +18,7 @@ import { GlassCard } from '../components';
 import { NavigationProp, RootStackParamList, ChatMessage } from '../types';
 import { AppContext } from '../context/AppContext';
 import { ICON_STYLE } from '../constants';
+import { sendChatMessage, detectTextEmotion } from '../services/api';
 
 type ChatbotRouteProp = RouteProp<RootStackParamList, 'Chatbot'>;
 
@@ -29,6 +31,7 @@ export const ChatbotScreen: React.FC = () => {
 
     const [input, setInput] = useState('');
     const [detectedMood, setDetectedMood] = useState<string | null>(null);
+    const [isLoading, setIsLoading] = useState(false);
     const scrollViewRef = useRef<ScrollView>(null);
 
     const scrollToBottom = () => {
@@ -80,35 +83,72 @@ export const ChatbotScreen: React.FC = () => {
         }
     }, [params?.detectedEmotion, params?.backToChoices]);
 
-    const handleSend = () => {
-        if (!input.trim()) return;
+    const handleSend = async () => {
+        if (!input.trim() || isLoading) return;
         const userText = input.trim();
 
         const newMsg: ChatMessage = { id: Date.now(), text: userText, sender: 'user' };
         setChatHistory(prev => [...prev, newMsg]);
         setInput('');
+        setIsLoading(true);
 
-        const lowerInput = userText.toLowerCase();
-        const greetings = ['hi', 'hello', 'hey', 'sup', 'yo', 'greetings'];
+        // Show typing indicator
+        const typingMsg: ChatMessage = { id: Date.now() + 1, text: '...', sender: 'bot' };
+        setChatHistory(prev => [...prev, typingMsg]);
 
-        if (greetings.some(g => lowerInput.includes(g)) && lowerInput.length < 20) {
-            setTimeout(() => {
-                const reply: ChatMessage = {
-                    id: Date.now(),
-                    text: "Hey there! 👋 I'm listening. Tell me how you're feeling, or show me with the camera!",
+        try {
+            // Use the real AI chatbot (LLaMA 3 + RAG)
+            const userId = userData?.email || userData?.name || 'default_user';
+            const aiResponse = await sendChatMessage(userId, userText);
+
+            // Remove typing indicator and add real AI reply
+            setChatHistory(prev => {
+                const filtered = prev.filter(m => m.id !== typingMsg.id);
+                const replyMsg: ChatMessage = {
+                    id: Date.now() + 2,
+                    text: aiResponse.reply,
                     sender: 'bot'
                 };
-                setChatHistory(prev => [...prev, reply]);
-            }, 600);
-            return;
-        }
+                return [...filtered, replyMsg];
+            });
 
-        // For TEXT input, simulate detection inline
-        setTimeout(() => {
-            const moods = ['Happy', 'Sad', 'Excited'];
-            const randomMood = moods[Math.floor(Math.random() * moods.length)];
-            navigation.setParams({ detectedEmotion: randomMood });
-        }, 1500);
+            // Use the AI-detected emotion to show mood result
+            if (aiResponse.detectedEmotion && aiResponse.detectedEmotion !== 'neutral') {
+                const emotion = aiResponse.detectedEmotion.charAt(0).toUpperCase() + aiResponse.detectedEmotion.slice(1);
+                navigation.setParams({ detectedEmotion: emotion });
+            }
+        } catch (error: any) {
+            console.warn('[Chat] AI error, falling back to text detection:', error.message);
+
+            // Fallback: try the standalone text emotion detection
+            try {
+                const detection = await detectTextEmotion(userText);
+                setChatHistory(prev => {
+                    const filtered = prev.filter(m => m.id !== typingMsg.id);
+                    const fallbackReply: ChatMessage = {
+                        id: Date.now() + 2,
+                        text: `I sense you're feeling ${detection.emotion}. Tell me more about what's going on?`,
+                        sender: 'bot'
+                    };
+                    return [...filtered, fallbackReply];
+                });
+                const emotion = detection.emotion.charAt(0).toUpperCase() + detection.emotion.slice(1);
+                navigation.setParams({ detectedEmotion: emotion });
+            } catch {
+                // Final fallback: local heuristic
+                setChatHistory(prev => {
+                    const filtered = prev.filter(m => m.id !== typingMsg.id);
+                    const errorReply: ChatMessage = {
+                        id: Date.now() + 2,
+                        text: "I'm having trouble connecting to my brain right now 🤖 But I'm still here — try the camera or voice option instead!",
+                        sender: 'bot'
+                    };
+                    return [...filtered, errorReply];
+                });
+            }
+        } finally {
+            setIsLoading(false);
+        }
     };
 
     const handleMethodSelect = (method: 'camera' | 'voice') => {
@@ -261,6 +301,7 @@ export const ChatbotScreen: React.FC = () => {
                                     input.trim() ? styles.sendBtnActive : styles.sendBtnInactive
                                 ]}
                                 onPress={input.trim() ? handleSend : () => handleMethodSelect('voice')}
+                                disabled={isLoading}
                             >
                                 <Icon
                                     name={input.trim() ? 'send' : 'mic'}

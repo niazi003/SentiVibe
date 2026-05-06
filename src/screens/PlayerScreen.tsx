@@ -14,7 +14,7 @@
  * - Seek support via playerRef.seekTo()
  */
 
-import React, { useCallback, useContext, useEffect, useRef } from 'react';
+import React, { useCallback, useContext, useEffect, useRef, useState } from 'react';
 import {
     View,
     Text,
@@ -33,6 +33,7 @@ import { NavigationProp, MediaItem } from '../types';
 import { AppContext } from '../context/AppContext';
 import { usePlayer } from '../context/PlayerContext';
 import { ICON_STYLE } from '../constants';
+import { sendFeedback } from '../services/api';
 import {
     onPlayerStateChanged,
     getPlayerState,
@@ -46,8 +47,9 @@ import {
 
 export const PlayerScreen: React.FC = () => {
     const navigation = useNavigation<NavigationProp>();
-    const { toggleFavorite, isFavorite } = useContext(AppContext);
+    const { toggleFavorite, isFavorite, userData } = useContext(AppContext);
     const playerRef = useRef<YouTubePlayerRef>(null);
+    const [trackFeedback, setTrackFeedback] = useState<'like' | 'dislike' | null>(null);
 
     // All playback state comes from the global PlayerContext
     const {
@@ -203,14 +205,46 @@ export const PlayerScreen: React.FC = () => {
     }, [isVideoMode, previous, history.length]);
 
     /**
+     * Handle track feedback (like/dislike) — sends to backend
+     */
+    const handleFeedback = useCallback(async (action: 'like' | 'dislike') => {
+        if (!currentTrack) return;
+        const newAction = trackFeedback === action ? null : action;
+        setTrackFeedback(newAction);
+
+        if (newAction) {
+            const userId = userData?.email || userData?.name || 'default_user';
+            await sendFeedback({
+                userId,
+                trackId: currentTrack.spotifyId || String(currentTrack.id),
+                action: newAction,
+            });
+        }
+    }, [currentTrack, trackFeedback, userData]);
+
+    // Reset feedback state when track changes
+    useEffect(() => {
+        setTrackFeedback(null);
+    }, [currentTrack?.id]);
+
+    /**
      * Handle YouTube player state changes — sync with PlayerContext
      */
     const handleStateChange = useCallback((state: string) => {
         if (state === 'ended') {
+            // Send skip feedback for tracks user didn't explicitly like
+            if (!trackFeedback) {
+                const userId = userData?.email || userData?.name || 'default_user';
+                sendFeedback({
+                    userId,
+                    trackId: currentTrack?.spotifyId || String(currentTrack?.id),
+                    action: 'skip',
+                });
+            }
             // Auto-play next track when current one ends
             next();
         }
-    }, [next]);
+    }, [next, trackFeedback, currentTrack, userData]);
 
     /**
      * Handle progress updates from YouTube player
@@ -330,11 +364,17 @@ export const PlayerScreen: React.FC = () => {
                         <Text style={styles.itemArtist}>{currentTrack.artist}</Text>
                     </View>
                     <View style={styles.feedbackBtns}>
-                        <TouchableOpacity style={styles.feedbackBtn}>
-                            <Icon name="thumbs-up" size={20} color="#60A5FA" />
+                        <TouchableOpacity
+                            style={[styles.feedbackBtn, trackFeedback === 'like' && styles.feedbackBtnActive]}
+                            onPress={() => handleFeedback('like')}
+                        >
+                            <Icon name="thumbs-up" size={20} color={trackFeedback === 'like' ? '#FFFFFF' : '#60A5FA'} />
                         </TouchableOpacity>
-                        <TouchableOpacity style={styles.feedbackBtnDanger}>
-                            <Icon name="thumbs-down" size={20} color="#EF4444" />
+                        <TouchableOpacity
+                            style={[styles.feedbackBtnDanger, trackFeedback === 'dislike' && styles.feedbackBtnDangerActive]}
+                            onPress={() => handleFeedback('dislike')}
+                        >
+                            <Icon name="thumbs-down" size={20} color={trackFeedback === 'dislike' ? '#FFFFFF' : '#EF4444'} />
                         </TouchableOpacity>
                     </View>
                 </View>
@@ -606,6 +646,9 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         alignItems: 'center',
     },
+    feedbackBtnActive: {
+        backgroundColor: '#3B82F6',
+    },
     feedbackBtnDanger: {
         width: 44,
         height: 44,
@@ -613,6 +656,9 @@ const styles = StyleSheet.create({
         backgroundColor: 'rgba(239, 68, 68, 0.1)',
         justifyContent: 'center',
         alignItems: 'center',
+    },
+    feedbackBtnDangerActive: {
+        backgroundColor: '#EF4444',
     },
     // Progress bar
     progressContainer: {

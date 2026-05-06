@@ -1,0 +1,14 @@
+# AI Microservice (ai_server.py)
+flask>=3.0.0
+flask-cors>=4.0.0
+requests>=2.31.0
+sentence-transformers>=2.7.0
+faiss-cpu>=1.8.0
+numpy>=1.26.0
+
+# Emotion Detection (emotion_server.py)
+transformers>=4.30.0
+torch>=2.0.0
+deepface>=0.0.79
+opencv-python>=4.8.0
+soundfile>=0.12.0
