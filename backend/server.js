@@ -30,7 +30,7 @@ const express = require('express');
 const cors = require('cors');
 const NodeCache = require('node-cache');
 const { getRecommendationsByMood } = require('./services/spotify');
-const { findVideosForTracks } = require('./services/youtube');
+const { findVideosForTracks, searchVideo } = require('./services/youtube');
 const { swapToken, refreshToken } = require('./services/auth');
 
 // ── Route imports ─────────────────────────────────────────────
@@ -109,29 +109,10 @@ app.get('/api/recommendations', async (req, res) => {
       });
     }
 
-    // Step 2: Find YouTube videos only for tracks that DON'T already have videoIds
-    // Tracks from the known lookup table already have videoIds attached
-    const tracksNeedingYouTube = spotifyTracks.filter((t) => !t.videoId);
-    let youtubeMap = {};
-
-    if (tracksNeedingYouTube.length > 0) {
-      try {
-        const ytResults = await findVideosForTracks(tracksNeedingYouTube);
-        tracksNeedingYouTube.forEach((track, i) => {
-          if (ytResults[i]) {
-            youtubeMap[track.spotifyId] = ytResults[i];
-          }
-        });
-      } catch (ytErr) {
-        console.warn('[YouTube] Search unavailable:', ytErr.message);
-        // Continue without YouTube — tracks will still play via Spotify albumArt
-      }
-    }
-
-    // Step 3: Merge Spotify + YouTube data into final response
+    // Step 2: Merge Spotify data into final response
+    // We no longer search YouTube for all tracks upfront to save API quota.
+    // The mobile app will request videoIds on-demand when the user presses play.
     const mergedTracks = spotifyTracks.map((track, index) => {
-      const youtube = youtubeMap[track.spotifyId];
-      const videoId = track.videoId || youtube?.videoId || null;
       return {
         id: index + 1,
         title: track.title,
@@ -139,12 +120,12 @@ app.get('/api/recommendations', async (req, res) => {
         duration: track.duration,
         durationMs: track.durationMs,
         spotifyId: track.spotifyId,
-        cover: youtube?.thumbnail || track.albumArt,
+        cover: track.albumArt,
         albumArt: track.albumArt,
-        videoId: videoId,
-        youtubeTitle: youtube?.youtubeTitle || null,
-        videoUrl: videoId
-          ? `https://www.youtube.com/watch?v=${videoId}`
+        videoId: track.videoId || null,
+        youtubeTitle: null,
+        videoUrl: track.videoId
+          ? `https://www.youtube.com/watch?v=${track.videoId}`
           : null,
       };
     });
@@ -192,6 +173,32 @@ app.get('/api/recommendations', async (req, res) => {
 });
 
 // ── Spotify Auth (Mobile OAuth flow) ──────────────────────────
+// ── YouTube Auth & On-Demand Search ──────────────────────────
+app.get('/api/youtube-search', async (req, res) => {
+  try {
+    const { title, artist } = req.query;
+    if (!title || !artist) {
+      return res.status(400).json({ error: 'Missing title or artist' });
+    }
+
+    const cacheKey = `yt_${title}_${artist}`.toLowerCase().replace(/\s+/g, '_');
+    const cached = cache.get(cacheKey);
+    if (cached) {
+      return res.json(cached);
+    }
+
+    const result = await searchVideo(title, artist);
+    if (result) {
+      cache.set(cacheKey, result, 86400); // Cache for 24 hours (86400 seconds)
+      return res.json(result);
+    }
+    res.status(404).json({ error: 'Video not found' });
+  } catch (error) {
+    console.error('[YouTube Search] Failed:', error);
+    res.status(500).json({ error: 'Failed to search YouTube' });
+  }
+});
+
 app.post('/api/auth/swap', async (req, res) => {
   try {
     const { code } = req.body;

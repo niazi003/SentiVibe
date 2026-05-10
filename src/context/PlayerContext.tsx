@@ -30,7 +30,8 @@ type PlayerAction =
     | { type: 'SET_VIDEO_MODE'; isVideo: boolean }
     | { type: 'SET_TIME'; currentTime: number; duration: number }
     | { type: 'PLAY_FROM_QUEUE'; track: MediaItem }
-    | { type: 'RESTORE_TRACK'; track: MediaItem };
+    | { type: 'RESTORE_TRACK'; track: MediaItem }
+    | { type: 'UPDATE_VIDEO_ID'; videoId: string };
 
 // ---- Initial State ----
 const initialState: PlayerState = {
@@ -133,6 +134,13 @@ function playerReducer(state: PlayerState, action: PlayerAction): PlayerState {
                 isPlaying: false,
             };
 
+        case 'UPDATE_VIDEO_ID':
+            if (!state.currentTrack) return state;
+            return {
+                ...state,
+                currentTrack: { ...state.currentTrack, videoId: action.videoId, videoUrl: `https://www.youtube.com/watch?v=${action.videoId}` },
+            };
+
         default:
             return state;
     }
@@ -151,6 +159,7 @@ interface PlayerContextType {
     setVideoMode: (isVideo: boolean) => void;
     setTime: (currentTime: number, duration: number) => void;
     playFromQueue: (track: MediaItem) => void;
+    updateVideoId: (videoId: string) => void;
 }
 
 const PlayerContext = createContext<PlayerContextType | undefined>(undefined);
@@ -193,6 +202,7 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         setVideoMode: (isVideo) => dispatch({ type: 'SET_VIDEO_MODE', isVideo }),
         setTime: (currentTime, duration) => dispatch({ type: 'SET_TIME', currentTime, duration }),
         playFromQueue: (track) => dispatch({ type: 'PLAY_FROM_QUEUE', track }),
+        updateVideoId: (videoId) => dispatch({ type: 'UPDATE_VIDEO_ID', videoId }),
     };
 
     return (

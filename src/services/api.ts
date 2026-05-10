@@ -93,6 +93,34 @@ export async function fetchRecommendations(
 }
 
 // ─────────────────────────────────────────────────────────────
+// YOUTUBE SEARCH
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * Fetch YouTube videoId on-demand for a single track.
+ */
+export async function fetchYouTubeVideoId(title: string, artist: string): Promise<string | null> {
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
+
+    const response = await fetch(
+      `${BASE_URL}/youtube-search?title=${encodeURIComponent(title)}&artist=${encodeURIComponent(artist)}`,
+      { signal: controller.signal }
+    );
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) return null;
+    const data = await response.json();
+    return data.videoId || null;
+  } catch (error) {
+    console.warn('[API] YouTube search failed:', error);
+    return null;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
 // AI CHAT
 // ─────────────────────────────────────────────────────────────
 

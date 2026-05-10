@@ -212,11 +212,23 @@ async function getRecommendationsByMood(mood, limit = 10) {
     const seenIds = new Set();
     const seenTitles = new Set(); // Deduplicate by normalized title
 
-    for (const query of queries) {
+    // Run all Spotify searches concurrently to significantly improve response time
+    const searchPromises = queries.map(async (query) => {
       const perQuery = Math.ceil(limit / queries.length) + 5;
-      const result = await api.searchTracks(query, { limit: perQuery, market: 'US' });
+      try {
+        const result = await api.searchTracks(query, { limit: perQuery, market: 'US' });
+        return result.body.tracks?.items || [];
+      } catch (err) {
+        console.warn(`[Spotify] Query failed: "${query}"`, err.message);
+        return [];
+      }
+    });
 
-      for (const track of (result.body.tracks?.items || [])) {
+    // Await all concurrent queries
+    const results = await Promise.all(searchPromises);
+
+    for (const tracks of results) {
+      for (const track of tracks) {
         if (seenIds.has(track.id)) continue;
 
         // Filter out karaoke, backing tracks, covers, instrumentals
@@ -258,9 +270,6 @@ async function getRecommendationsByMood(mood, limit = 10) {
           _popularity: track.popularity || 0,
         });
       }
-
-      // Small delay between requests
-      await new Promise(resolve => setTimeout(resolve, 50));
     }
 
     if (allTracks.length > 0) {

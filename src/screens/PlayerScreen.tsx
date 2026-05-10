@@ -33,7 +33,7 @@ import { NavigationProp, MediaItem } from '../types';
 import { AppContext } from '../context/AppContext';
 import { usePlayer } from '../context/PlayerContext';
 import { ICON_STYLE } from '../constants';
-import { sendFeedback } from '../services/api';
+import { sendFeedback, fetchYouTubeVideoId } from '../services/api';
 import {
     onPlayerStateChanged,
     getPlayerState,
@@ -63,6 +63,7 @@ export const PlayerScreen: React.FC = () => {
         setVideoMode,
         setTime,
         playFromQueue,
+        updateVideoId,
     } = usePlayer();
 
     const screenWidth = Dimensions.get('window').width;
@@ -72,6 +73,28 @@ export const PlayerScreen: React.FC = () => {
     // Get the videoId — either from the dedicated field or extracted from URL
     const videoId = currentTrack?.videoId ||
         (currentTrack?.videoUrl ? extractYouTubeId(currentTrack.videoUrl) : null);
+
+    const [isFetchingVideo, setIsFetchingVideo] = useState(false);
+
+    /**
+     * Fetch YouTube videoId on-demand when switching to video mode
+     */
+    useEffect(() => {
+        let isMounted = true;
+        if (isVideoMode && !videoId && currentTrack && !isFetchingVideo) {
+            setIsFetchingVideo(true);
+            fetchYouTubeVideoId(currentTrack.title, currentTrack.artist)
+                .then((newVideoId) => {
+                    if (isMounted && newVideoId) {
+                        updateVideoId(newVideoId);
+                    }
+                })
+                .finally(() => {
+                    if (isMounted) setIsFetchingVideo(false);
+                });
+        }
+        return () => { isMounted = false; };
+    }, [isVideoMode, videoId, currentTrack?.id]);
 
     /**
      * Format seconds to "m:ss" display format
@@ -319,7 +342,7 @@ export const PlayerScreen: React.FC = () => {
                 showsVerticalScrollIndicator={false}
             >
                 {/* ===== VIDEO MODE: Show the YouTube player visually ===== */}
-                {isVideoMode && videoId && (
+                {isVideoMode && videoId && !isFetchingVideo && (
                     <View style={styles.videoContainer}>
                         <YouTubePlayer
                             ref={playerRef}
@@ -330,6 +353,14 @@ export const PlayerScreen: React.FC = () => {
                             onStateChange={handleStateChange}
                             onProgress={handleProgress}
                         />
+                    </View>
+                )}
+                
+                {/* Visual loading state while fetching videoId via API */}
+                {isVideoMode && (!videoId || isFetchingVideo) && (
+                    <View style={[styles.coverContainer, { justifyContent: 'center', alignItems: 'center' }]}>
+                        <Icon name="youtube" size={48} color="#EF4444" style={{ marginBottom: 16 }} />
+                        <Text style={{ color: '#94A3B8', fontSize: 16 }}>{isFetchingVideo ? 'Searching YouTube...' : 'Video unavailable'}</Text>
                     </View>
                 )}
 
