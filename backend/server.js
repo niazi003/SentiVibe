@@ -109,20 +109,28 @@ app.get('/api/recommendations', async (req, res) => {
       });
     }
 
-    // Step 2: Find YouTube videos for each track
-    // Skip YouTube search if tracks already have videoIds (from fallback data)
-    const hasVideoIds = spotifyTracks.some((t) => t.videoId);
-    const youtubeResults = hasVideoIds
-      ? spotifyTracks.map((t) =>
-          t.videoId
-            ? { videoId: t.videoId, youtubeTitle: t.title, thumbnail: null }
-            : null
-        )
-      : await findVideosForTracks(spotifyTracks);
+    // Step 2: Find YouTube videos only for tracks that DON'T already have videoIds
+    // Tracks from the known lookup table already have videoIds attached
+    const tracksNeedingYouTube = spotifyTracks.filter((t) => !t.videoId);
+    let youtubeMap = {};
+
+    if (tracksNeedingYouTube.length > 0) {
+      try {
+        const ytResults = await findVideosForTracks(tracksNeedingYouTube);
+        tracksNeedingYouTube.forEach((track, i) => {
+          if (ytResults[i]) {
+            youtubeMap[track.spotifyId] = ytResults[i];
+          }
+        });
+      } catch (ytErr) {
+        console.warn('[YouTube] Search unavailable:', ytErr.message);
+        // Continue without YouTube — tracks will still play via Spotify albumArt
+      }
+    }
 
     // Step 3: Merge Spotify + YouTube data into final response
     const mergedTracks = spotifyTracks.map((track, index) => {
-      const youtube = youtubeResults[index];
+      const youtube = youtubeMap[track.spotifyId];
       const videoId = track.videoId || youtube?.videoId || null;
       return {
         id: index + 1,

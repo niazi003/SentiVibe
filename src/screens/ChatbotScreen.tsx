@@ -58,7 +58,11 @@ export const ChatbotScreen: React.FC = () => {
         if (params?.detectedEmotion) {
             if (detectedMood !== params.detectedEmotion || params.backToChoices) {
                 setDetectedMood(params.detectedEmotion);
-                const emotionEmoji = params.detectedEmotion === 'Happy' ? '😊' : params.detectedEmotion === 'Sad' ? '😢' : '🤩';
+                const emojiMap: Record<string, string> = {
+                    Happy: '😊', Sad: '😢', Angry: '😠', Calm: '😌', Anxious: '😰',
+                    Excited: '🤩', Lonely: '😔', Focused: '🎯', Romantic: '💕', Neutral: '😐'
+                };
+                const emotionEmoji = emojiMap[params.detectedEmotion] || '🎭';
 
                 const resultMsg: ChatMessage = {
                     id: Date.now(),

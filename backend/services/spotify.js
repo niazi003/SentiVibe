@@ -1,67 +1,141 @@
 /**
- * Spotify Service — Search-based with fallback
+ * Spotify Service — Search API with Mood-Based Personalization
  * 
- * Uses the Spotify Search API to find mood-appropriate tracks.
- * If Spotify is unavailable (rate limited, 403, etc.), returns
- * curated fallback data so the app remains functional.
+ * Uses Spotify Search API to find mood-appropriate tracks.
+ * Searches specifically for popular, well-known songs that will
+ * have YouTube music videos available.
+ * 
+ * No Recommendations API (deprecated by Spotify, returns 404).
  */
 
 const SpotifyWebApi = require('spotify-web-api-node');
 
 /**
- * Mood → search query mapping.
- * Multiple queries per mood for variety.
+ * Mood → multiple search queries for variety.
+ * Queries are designed to return well-known, popular songs
+ * that are guaranteed to exist on YouTube.
  */
 const MOOD_SEARCH_QUERIES = {
-  happy: ['happy upbeat pop', 'feel good dance', 'cheerful summer hits', 'positive vibes'],
-  sad: ['sad emotional ballad', 'heartbreak acoustic', 'melancholy piano', 'sad love songs'],
-  excited: ['hype energy workout', 'adrenaline EDM rock', 'pump up anthem', 'energetic hits'],
-  angry: ['angry rock metal', 'rage punk hardcore', 'aggressive heavy', 'intense dark rock'],
-  relaxed: ['chill relax ambient', 'calm acoustic peaceful', 'lofi chill', 'relaxing jazz'],
-  romantic: ['romantic love songs', 'romantic rnb soul', 'love ballad', 'romantic slow dance'],
+  happy:    ['pharrell happy uptown funk', 'feel good pop hits 2024', 'dance pop chart hits', 'justin timberlake dua lipa'],
+  sad:      ['adele someone like you fix you', 'lewis capaldi sad love song', 'billie eilish lovely sad', 'heartbreak ballad hits'],
+  excited:  ['eye of the tiger lose yourself', 'queen dont stop me now', 'workout pump up rock hits', 'eminem kanye hype'],
+  angry:    ['linkin park numb in the end', 'system of a down rage', 'disturbed metal rock hits', 'papa roach punk hits'],
+  calm:     ['yiruma river flows einaudi', 'chill acoustic singer songwriter', 'lofi chill songs 2024', 'norah jones jack johnson'],
+  relaxed:  ['jack johnson acoustic chill', 'jason mraz colbie caillat', 'chill indie folk popular', 'bon iver iron and wine'],
+  anxious:  ['bob marley three little birds', 'beatles here comes the sun', 'lean on me bill withers', 'comforting classic songs'],
+  lonely:   ['radiohead creep lonely akon', 'pink floyd wish you were here', 'bon iver skinny love', 'indie sad songs popular'],
+  focused:  ['hans zimmer interstellar time', 'the xx intro deadmau5', 'classical piano focus study', 'einaudi yiruma focus'],
+  romantic: ['ed sheeran perfect thinking out loud', 'john legend all of me', 'elvis cant help falling love', 'romantic ballad hits'],
+  neutral:  ['coldplay viva la vida clocks', 'queen bohemian rhapsody', 'adele rolling in the deep', 'hozier weeknd hit songs'],
 };
 
 /**
- * Curated fallback data for when Spotify API is unavailable.
- * Includes videoIds so YouTube search can be skipped too.
+ * Well-known YouTube video IDs for popular songs.
+ * This avoids needing the YouTube Search API for common tracks.
+ * Key format: lowercase "title - artist" → videoId
  */
-const FALLBACK_DATA = {
-  happy: [
-    { title: 'Happy', artist: 'Pharrell Williams', spotifyId: 'fakeid1', albumArt: 'https://i.scdn.co/image/ab67616d0000b2737c3c53395adde94b567d4b1e', duration: '4:00', durationMs: 240000, videoId: 'ZbZSe6N_BXs' },
-    { title: "Can't Stop the Feeling!", artist: 'Justin Timberlake', spotifyId: 'fakeid2', albumArt: 'https://i.scdn.co/image/ab67616d0000b273a3c870db3ee27a3d2a3e57df', duration: '4:02', durationMs: 242000, videoId: 'ru0K8uYEZWw' },
-    { title: 'Uptown Funk', artist: 'Mark Ronson ft. Bruno Mars', spotifyId: 'fakeid3', albumArt: 'https://i.scdn.co/image/ab67616d0000b27361f4139a5765e0e2b2faa7e0', duration: '4:31', durationMs: 271000, videoId: 'OPf0YbXqDm0' },
-    { title: 'Shake It Off', artist: 'Taylor Swift', spotifyId: 'fakeid4', albumArt: 'https://i.scdn.co/image/ab67616d0000b273a5b3fc8a1e3a2bfb2f5850f7', duration: '3:39', durationMs: 219000, videoId: 'nfWlot6h_JM' },
-    { title: 'Walking on Sunshine', artist: 'Katrina & The Waves', spotifyId: 'fakeid5', albumArt: 'https://i.scdn.co/image/ab67616d0000b2731c5eecb89288c3ef5e0e50c7', duration: '3:58', durationMs: 238000, videoId: 'iPUmE-tne5U' },
-    { title: 'Good Feeling', artist: 'Flo Rida', spotifyId: 'fakeid6', albumArt: 'https://i.scdn.co/image/ab67616d0000b273cb80e4c7ec37aa41b8e5a5b1', duration: '4:08', durationMs: 248000, videoId: '3OnnDqH6Wj8' },
-    { title: 'On Top of the World', artist: 'Imagine Dragons', spotifyId: 'fakeid7', albumArt: 'https://i.scdn.co/image/ab67616d0000b273e8d55b5210f42ff05b0ae5e2', duration: '3:12', durationMs: 192000, videoId: 'w5tWYmIOWGk' },
-    { title: 'Best Day of My Life', artist: 'American Authors', spotifyId: 'fakeid8', albumArt: 'https://i.scdn.co/image/ab67616d0000b273e6e4b87e53cf37e42d8c8eee', duration: '3:14', durationMs: 194000, videoId: 'Y66j_BUCBMY' },
-    { title: 'Stronger', artist: 'Kelly Clarkson', spotifyId: 'fakeid9', albumArt: 'https://i.scdn.co/image/ab67616d0000b2738bef4e3bd5d4a8e4bbe97f9f', duration: '3:42', durationMs: 222000, videoId: 'Xn676-fLq7I' },
-    { title: 'Dynamite', artist: 'BTS', spotifyId: 'fakeid10', albumArt: 'https://i.scdn.co/image/ab67616d0000b2731c3e0a58f91ea60ac71e7235', duration: '3:19', durationMs: 199000, videoId: 'gdZLi9oWNZg' },
-  ],
-  sad: [
-    { title: 'Someone Like You', artist: 'Adele', spotifyId: 'fakeids1', albumArt: 'https://i.scdn.co/image/ab67616d0000b2732118bf9b198b05a95ded6300', duration: '4:45', durationMs: 285000, videoId: 'hLQl3WQQoQ0' },
-    { title: 'Fix You', artist: 'Coldplay', spotifyId: 'fakeids2', albumArt: 'https://i.scdn.co/image/ab67616d0000b2730b6a7f089a5d48e21e tried', duration: '4:55', durationMs: 295000, videoId: 'k4V3Mo61fJM' },
-    { title: 'All of Me', artist: 'John Legend', spotifyId: 'fakeids3', albumArt: 'https://i.scdn.co/image/ab67616d0000b273ec41c8f3c59c8f3d8b06d7e8', duration: '5:00', durationMs: 300000, videoId: '450p7goxZqg' },
-    { title: 'Say Something', artist: 'A Great Big World ft. Christina Aguilera', spotifyId: 'fakeids4', albumArt: 'https://i.scdn.co/image/ab67616d0000b273d3ce05af1c8d39b8e3c0b7e1', duration: '3:50', durationMs: 230000, videoId: '-2U0Ivkn2Ds' },
-    { title: 'Skinny Love', artist: 'Bon Iver', spotifyId: 'fakeids5', albumArt: 'https://i.scdn.co/image/ab67616d0000b273f4f69e6f3ea9b3c0e1a1f3e6', duration: '3:58', durationMs: 238000, videoId: 'ssdgFoHLwnk' },
-    { title: 'Hurt', artist: 'Johnny Cash', spotifyId: 'fakeids6', albumArt: 'https://i.scdn.co/image/ab67616d0000b273c4a38d8a6d0b2fa2f5b1c9e4', duration: '3:38', durationMs: 218000, videoId: '8AHCfZTRGiI' },
-    { title: 'Mad World', artist: 'Gary Jules', spotifyId: 'fakeids7', albumArt: 'https://i.scdn.co/image/ab67616d0000b273e5b1e9e8b2c5f3a4d6e7f8a1', duration: '3:07', durationMs: 187000, videoId: '4N3N1MlvVhc' },
-    { title: 'The Night We Met', artist: 'Lord Huron', spotifyId: 'fakeids8', albumArt: 'https://i.scdn.co/image/ab67616d0000b273d8a31c7b4e0e5d9f1a2b3c4d', duration: '3:28', durationMs: 208000, videoId: 'KtlgYxa6BMU' },
-    { title: 'Tears in Heaven', artist: 'Eric Clapton', spotifyId: 'fakeids9', albumArt: 'https://i.scdn.co/image/ab67616d0000b273a1b2c3d4e5f6a7b8c9d0e1f2', duration: '4:33', durationMs: 273000, videoId: 'JxPj3GAYYZ0' },
-    { title: 'Everybody Hurts', artist: 'R.E.M.', spotifyId: 'fakeids10', albumArt: 'https://i.scdn.co/image/ab67616d0000b273b1c2d3e4f5a6b7c8d9e0f1a2', duration: '5:20', durationMs: 320000, videoId: '5rOiW_xY-kc' },
-  ],
-  excited: [
-    { title: 'Eye of the Tiger', artist: 'Survivor', spotifyId: 'fakeide1', albumArt: 'https://i.scdn.co/image/ab67616d0000b273a1b2c3d4e5f6a7b8', duration: '4:05', durationMs: 245000, videoId: 'btPJPFnesV4' },
-    { title: "Don't Stop Me Now", artist: 'Queen', spotifyId: 'fakeide2', albumArt: 'https://i.scdn.co/image/ab67616d0000b273b1c2d3e4f5a6b7c8', duration: '3:30', durationMs: 210000, videoId: 'HgzGwKwLmgM' },
-    { title: 'Lose Yourself', artist: 'Eminem', spotifyId: 'fakeide3', albumArt: 'https://i.scdn.co/image/ab67616d0000b273c1d2e3f4a5b6c7d8', duration: '5:30', durationMs: 330000, videoId: '_Yhyp-_hX2s' },
-    { title: 'Stronger', artist: 'Kanye West', spotifyId: 'fakeide4', albumArt: 'https://i.scdn.co/image/ab67616d0000b273d1e2f3a4b5c6d7e8', duration: '5:12', durationMs: 312000, videoId: 'PsO6ZnUZI0g' },
-    { title: 'Till I Collapse', artist: 'Eminem ft. Nate Dogg', spotifyId: 'fakeide5', albumArt: 'https://i.scdn.co/image/ab67616d0000b273e1f2a3b4c5d6e7f8', duration: '5:00', durationMs: 300000, videoId: 'ytQ5CYE1VZw' },
-    { title: 'Thunderstruck', artist: 'AC/DC', spotifyId: 'fakeide6', albumArt: 'https://i.scdn.co/image/ab67616d0000b273f1a2b3c4d5e6f7a8', duration: '4:52', durationMs: 292000, videoId: 'v2AC41dglnM' },
-    { title: 'Centuries', artist: 'Fall Out Boy', spotifyId: 'fakeide7', albumArt: 'https://i.scdn.co/image/ab67616d0000b273a2b3c4d5e6f7a8b9', duration: '3:48', durationMs: 228000, videoId: 'LBr7kECJGKY' },
-    { title: 'Radioactive', artist: 'Imagine Dragons', spotifyId: 'fakeide8', albumArt: 'https://i.scdn.co/image/ab67616d0000b273b2c3d4e5f6a7b8c9', duration: '3:07', durationMs: 187000, videoId: 'ktvTqknDobU' },
-    { title: 'We Will Rock You', artist: 'Queen', spotifyId: 'fakeide9', albumArt: 'https://i.scdn.co/image/ab67616d0000b273c2d3e4f5a6b7c8d9', duration: '2:01', durationMs: 121000, videoId: '-tJYN-eG1zk' },
-    { title: 'Sabotage', artist: 'Beastie Boys', spotifyId: 'fakeide10', albumArt: 'https://i.scdn.co/image/ab67616d0000b273d2e3f4a5b6c7d8e9', duration: '2:58', durationMs: 178000, videoId: 'z5rRZdiu1UE' },
-  ],
+const KNOWN_VIDEO_IDS = {
+  // Happy
+  'happy - pharrell williams': 'ZbZSe6N_BXs',
+  "can't stop the feeling! - justin timberlake": 'ru0K8uYEZWw',
+  'uptown funk - mark ronson, bruno mars': 'OPf0YbXqDm0',
+  'shake it off - taylor swift': 'nfWlot6h_JM',
+  'walking on sunshine - katrina and the waves': 'iPUmE-tne5U',
+  'good feeling - flo rida': '3OnnDqH6Wj8',
+  'on top of the world - imagine dragons': 'w5tWYmIOWGk',
+  'dynamite - bts': 'gdZLi9oWNZg',
+  'levitating - dua lipa': 'TUVcZfQe-Kw',
+  'blinding lights - the weeknd': '4NRXx6U8ABQ',
+  'dance monkey - tones and i': 'q0hyYWKXF0Q',
+  'shut up and dance - walk the moon': '6JCLY0Rlx6Q',
+  // Sad
+  'someone like you - adele': 'hLQl3WQQoQ0',
+  'fix you - coldplay': 'k4V3Mo61fJM',
+  'all of me - john legend': '450p7goxZqg',
+  'say something - a great big world, christina aguilera': '-2U0Ivkn2Ds',
+  'someone you loved - lewis capaldi': 'bCuhuePlP8o',
+  'when the party\'s over - billie eilish': 'pbMwTqkKSps',
+  'lovely - billie eilish, khalid': 'V1Pl8CzNzCw',
+  'the night we met - lord huron': 'KtlgYxa6BMU',
+  'skinny love - bon iver': 'ssdgFoHLwnk',
+  'hurt - johnny cash': '8AHCfZTRGiI',
+  'tears in heaven - eric clapton': 'JxPj3GAYYZ0',
+  'everybody hurts - r.e.m.': '5rOiW_xY-kc',
+  'let her go - passenger': 'RBumgq5yVrA',
+  'stay with me - sam smith': 'pB-5XG-DbAA',
+  // Excited
+  'eye of the tiger - survivor': 'btPJPFnesV4',
+  "don't stop me now - queen": 'HgzGwKwLmgM',
+  'lose yourself - eminem': '_Yhyp-_hX2s',
+  'stronger - kanye west': 'PsO6ZnUZI0g',
+  'till i collapse - eminem, nate dogg': 'ytQ5CYE1VZw',
+  'thunderstruck - ac/dc': 'v2AC41dglnM',
+  'radioactive - imagine dragons': 'ktvTqknDobU',
+  'we will rock you - queen': '-tJYN-eG1zk',
+  'centuries - fall out boy': 'LBr7kECJGKY',
+  'warriors - imagine dragons': 'fmI_Ndrxy14',
+  // Angry
+  'in the end - linkin park': 'eVTXPUF4Oz4',
+  'numb - linkin park': 'kXYiU_JCYtU',
+  'killing in the name - rage against the machine': 'bWXazVhlyxQ',
+  'break stuff - limp bizkit': 'ZpUYjpKg9KY',
+  'given up - linkin park': '0xyxtzD54rM',
+  'bodies - drowning pool': '04F4xlaSjDU',
+  'down with the sickness - disturbed': '09LTT0xwdfw',
+  'last resort - papa roach': 'j0lSpNtjPM8',
+  'chop suey! - system of a down': 'CSvFpBOe8eY',
+  'monster - skillet': '1mjlM_RnsVE',
+  // Calm
+  'weightless - marconi union': 'UfcAVejslrU',
+  'sunset lover - petit biscuit': 'wuCK-oiE3rM',
+  'breathe me - sia': 'ghPcYqn0p4Y',
+  'river flows in you - yiruma': '7maJOI3QMu0',
+  'experience - ludovico einaudi': 'hN_q-_nGv4U',
+  'clair de lune - claude debussy': 'CvFH_6DNRCY',
+  'moonlight sonata - ludwig van beethoven': '4Tr0otuiQuU',
+  'somewhere over the rainbow - israel kamakawiwo\'ole': 'V1bFr2SWP1I',
+  // Anxious
+  'lean on me - bill withers': 'fOZ-MySzAQo',
+  'here comes the sun - the beatles': 'KQetemT1sWc',
+  'three little birds - bob marley & the wailers': 'zaGUr6wDTO0',
+  'breathe - telepopmusik': 'vyut3GyQtn0',
+  "don't worry be happy - bobby mcferrin": 'd-diB65scQU',
+  'what a wonderful world - louis armstrong': 'A3yCcXgbKrE',
+  // Lonely
+  'lonely - akon': '6EEW-9NDM5k',
+  'mad world - gary jules': '4N3N1MlvVhw',
+  'creep - radiohead': 'XFkzRNyygfk',
+  'space oddity - david bowie': 'iYYRH4apXDo',
+  'hallelujah - jeff buckley': 'y8AWFf7EAc4',
+  'wish you were here - pink floyd': 'IXdNnw99-Ic',
+  'nothing compares 2 u - sinéad o\'connor': '0-EF60neguk',
+  // Focused
+  'time - hans zimmer': 'RxabLA7UQ9k',
+  'intro - the xx': 'xMV6l2y67rk',
+  'strobe - deadmau5': 'tKi9Z-f6qX4',
+  'interstellar main theme - hans zimmer': 'kpz8lpoLvrA',
+  'comptine d\'un autre été - yann tiersen': 'NvryolGa19A',
+  // Romantic
+  'perfect - ed sheeran': '2Vv-BfVoq4g',
+  'thinking out loud - ed sheeran': 'lp-EO5I60KA',
+  'at last - etta james': 'S-cbOl96RFM',
+  "can't help falling in love - elvis presley": 'vGJTaP6anOU',
+  'a thousand years - christina perri': 'rtOvBOTyX00',
+  'just the way you are - bruno mars': 'LjhCEhWiKXk',
+  'love story - taylor swift': '8xg3vE8Ie_E',
+  'my heart will go on - celine dion': 'DNyKDI9pn0Q',
+  'make you feel my love - adele': '0put0_a--Ns',
+  // Neutral
+  'bohemian rhapsody - queen': 'fJ9rUzIMcZQ',
+  'somebody that i used to know - gotye, kimbra': '8UVNT4wvIGY',
+  'clocks - coldplay': 'd020hcWA_Wg',
+  'viva la vida - coldplay': 'dvgZkm1xWPE',
+  'rolling in the deep - adele': 'rYEDA3JcQqw',
+  'take me to church - hozier': 'PVjiKRfKpPI',
+  'let it be - the beatles': 'QDYfEBY9NM4',
+  'hotel california - eagles': 'BciS5krYL80',
+  'hey jude - the beatles': 'A_MjCqQoLLA',
+  'forrest gump - frank ocean': 'F4b6fIiPQEo',
 };
 
 let spotifyApi = null;
@@ -89,56 +163,111 @@ async function initSpotify() {
 }
 
 /**
- * Get mood-based song recommendations.
+ * Look up a known YouTube videoId for a track.
+ * Uses fuzzy matching on "title - artist" against the KNOWN_VIDEO_IDS table.
+ */
+function findKnownVideoId(title, artist) {
+  const normalize = (s) => s.toLowerCase()
+    .replace(/\(feat\..*?\)/gi, '')
+    .replace(/\[.*?\]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  const key = `${normalize(title)} - ${normalize(artist)}`;
+
+  // Exact match
+  if (KNOWN_VIDEO_IDS[key]) return KNOWN_VIDEO_IDS[key];
+
+  // Partial match: check if track title is contained in any known key
+  const titleNorm = normalize(title);
+  for (const [knownKey, videoId] of Object.entries(KNOWN_VIDEO_IDS)) {
+    if (knownKey.includes(titleNorm) && knownKey.includes(normalize(artist.split(',')[0]))) {
+      return videoId;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Get mood-based song recommendations via Spotify Search API.
  * 
- * Tries Spotify Search API first. If that fails (403, rate limit, etc.),
- * falls back to curated data with real YouTube videoIds.
+ * Searches for popular, well-known songs matching the mood.
+ * Attaches known YouTube videoIds when available.
  * 
  * @param {string} mood - Detected mood
- * @param {number} limit - Number of tracks
+ * @param {number} limit - Number of tracks to return
  * @returns {{ tracks: Array, source: 'spotify' | 'fallback' }}
  */
 async function getRecommendationsByMood(mood, limit = 10) {
   const normalizedMood = mood.toLowerCase();
 
-  // Try Spotify first
   try {
     const api = await initSpotify();
-    const queries = MOOD_SEARCH_QUERIES[normalizedMood] || MOOD_SEARCH_QUERIES['happy'];
+    const queries = MOOD_SEARCH_QUERIES[normalizedMood] || MOOD_SEARCH_QUERIES['neutral'];
 
-    console.log(`[Spotify] Searching for mood: ${normalizedMood}`);
+    console.log(`[Spotify] Searching for mood: ${normalizedMood} (${queries.length} queries)`);
 
     const allTracks = [];
     const seenIds = new Set();
+    const seenTitles = new Set(); // Deduplicate by normalized title
 
     for (const query of queries) {
-      const perQuery = Math.ceil(limit / queries.length) + 2;
-      const result = await api.searchTracks(query, { limit: perQuery });
+      const perQuery = Math.ceil(limit / queries.length) + 5;
+      const result = await api.searchTracks(query, { limit: perQuery, market: 'US' });
 
       for (const track of (result.body.tracks?.items || [])) {
-        if (!seenIds.has(track.id)) {
-          seenIds.add(track.id);
-          allTracks.push({
-            title: track.name,
-            artist: track.artists.map(a => a.name).join(', '),
-            spotifyId: track.id,
-            albumArt: track.album.images[0]?.url || '',
-            duration: `${Math.floor(track.duration_ms / 60000)}:${String(
-              Math.floor((track.duration_ms % 60000) / 1000)
-            ).padStart(2, '0')}`,
-            durationMs: track.duration_ms,
-            _popularity: track.popularity || 0,
-          });
-        }
+        if (seenIds.has(track.id)) continue;
+
+        // Filter out karaoke, backing tracks, covers, instrumentals
+        const titleLower = track.name.toLowerCase();
+        const artistLower = track.artists.map(a => a.name).join(' ').toLowerCase();
+        const junkKeywords = [
+          'karaoke', 'backing track', 'tribute', 'made popular',
+          'vocal version', 'backing version', 'instrumental version',
+          'party tyme', 'in the style of', 'originally performed',
+          'workout mix', 'fitness version', '8-bit', 'lullaby',
+          'music box', 'midi', 'for dogs', 'for cats', 'for pets',
+          'for babies', 'white noise', 'rain sounds', 'nature sounds',
+          'sleep sounds', 'asmr', 'meditation', 'hypnosis', 'breeds',
+          'canine', 'terrier', 'relaxation for'
+        ];
+        const isJunk = junkKeywords.some(kw => titleLower.includes(kw) || artistLower.includes(kw));
+        if (isJunk) continue;
+
+        // Deduplicate by title (same song from different albums)
+        const titleKey = titleLower.replace(/[^a-z0-9]/g, '');
+        if (seenTitles.has(titleKey)) continue;
+        seenTitles.add(titleKey);
+
+        seenIds.add(track.id);
+
+        const artist = track.artists.map(a => a.name).join(', ');
+        const knownVideoId = findKnownVideoId(track.name, artist);
+
+        allTracks.push({
+          title: track.name,
+          artist: artist,
+          spotifyId: track.id,
+          albumArt: track.album.images[0]?.url || '',
+          duration: `${Math.floor(track.duration_ms / 60000)}:${String(
+            Math.floor((track.duration_ms % 60000) / 1000)
+          ).padStart(2, '0')}`,
+          durationMs: track.duration_ms,
+          videoId: knownVideoId, // null if not in lookup table
+          _popularity: track.popularity || 0,
+        });
       }
 
+      // Small delay between requests
       await new Promise(resolve => setTimeout(resolve, 50));
     }
 
     if (allTracks.length > 0) {
+      // Sort by popularity — most popular songs first (these are the ones on YouTube)
       allTracks.sort((a, b) => b._popularity - a._popularity);
       const final = allTracks.slice(0, limit).map(({ _popularity, ...t }) => t);
-      console.log(`[Spotify] Returning ${final.length} live tracks`);
+      console.log(`[Spotify] ✅ Returning ${final.length} tracks for mood: ${normalizedMood} (${final.filter(t => t.videoId).length} with known videoIds)`);
       return { tracks: final, source: 'spotify' };
     }
   } catch (err) {
@@ -146,10 +275,94 @@ async function getRecommendationsByMood(mood, limit = 10) {
     console.warn(`[Spotify] API error (${code}), using fallback data`);
   }
 
-  // Fallback: return curated data
+  // Fallback: return curated data with guaranteed YouTube videoIds
   console.log(`[Spotify] Using fallback data for mood: ${normalizedMood}`);
   const fallback = FALLBACK_DATA[normalizedMood] || FALLBACK_DATA['happy'];
   return { tracks: fallback.slice(0, limit), source: 'fallback' };
 }
+
+/**
+ * Curated fallback data — guaranteed YouTube videoIds.
+ * Used when Spotify API is completely unreachable.
+ */
+const FALLBACK_DATA = {
+  happy: [
+    { title: 'Happy', artist: 'Pharrell Williams', spotifyId: 'fakeid1', albumArt: '', duration: '4:00', durationMs: 240000, videoId: 'ZbZSe6N_BXs' },
+    { title: "Can't Stop the Feeling!", artist: 'Justin Timberlake', spotifyId: 'fakeid2', albumArt: '', duration: '4:02', durationMs: 242000, videoId: 'ru0K8uYEZWw' },
+    { title: 'Uptown Funk', artist: 'Mark Ronson ft. Bruno Mars', spotifyId: 'fakeid3', albumArt: '', duration: '4:31', durationMs: 271000, videoId: 'OPf0YbXqDm0' },
+    { title: 'Shake It Off', artist: 'Taylor Swift', spotifyId: 'fakeid4', albumArt: '', duration: '3:39', durationMs: 219000, videoId: 'nfWlot6h_JM' },
+    { title: 'Blinding Lights', artist: 'The Weeknd', spotifyId: 'fakeid5', albumArt: '', duration: '3:20', durationMs: 200000, videoId: '4NRXx6U8ABQ' },
+  ],
+  sad: [
+    { title: 'Someone Like You', artist: 'Adele', spotifyId: 'fakeids1', albumArt: '', duration: '4:45', durationMs: 285000, videoId: 'hLQl3WQQoQ0' },
+    { title: 'Fix You', artist: 'Coldplay', spotifyId: 'fakeids2', albumArt: '', duration: '4:55', durationMs: 295000, videoId: 'k4V3Mo61fJM' },
+    { title: 'Someone You Loved', artist: 'Lewis Capaldi', spotifyId: 'fakeids3', albumArt: '', duration: '3:02', durationMs: 182000, videoId: 'bCuhuePlP8o' },
+    { title: 'Let Her Go', artist: 'Passenger', spotifyId: 'fakeids4', albumArt: '', duration: '4:13', durationMs: 253000, videoId: 'RBumgq5yVrA' },
+    { title: 'The Night We Met', artist: 'Lord Huron', spotifyId: 'fakeids5', albumArt: '', duration: '3:28', durationMs: 208000, videoId: 'KtlgYxa6BMU' },
+  ],
+  excited: [
+    { title: 'Eye of the Tiger', artist: 'Survivor', spotifyId: 'fakeide1', albumArt: '', duration: '4:05', durationMs: 245000, videoId: 'btPJPFnesV4' },
+    { title: "Don't Stop Me Now", artist: 'Queen', spotifyId: 'fakeide2', albumArt: '', duration: '3:30', durationMs: 210000, videoId: 'HgzGwKwLmgM' },
+    { title: 'Lose Yourself', artist: 'Eminem', spotifyId: 'fakeide3', albumArt: '', duration: '5:30', durationMs: 330000, videoId: '_Yhyp-_hX2s' },
+    { title: 'Stronger', artist: 'Kanye West', spotifyId: 'fakeide4', albumArt: '', duration: '5:12', durationMs: 312000, videoId: 'PsO6ZnUZI0g' },
+    { title: 'Radioactive', artist: 'Imagine Dragons', spotifyId: 'fakeide5', albumArt: '', duration: '3:07', durationMs: 187000, videoId: 'ktvTqknDobU' },
+  ],
+  angry: [
+    { title: 'In the End', artist: 'Linkin Park', spotifyId: 'fakeida1', albumArt: '', duration: '3:36', durationMs: 216000, videoId: 'eVTXPUF4Oz4' },
+    { title: 'Numb', artist: 'Linkin Park', spotifyId: 'fakeida2', albumArt: '', duration: '3:07', durationMs: 187000, videoId: 'kXYiU_JCYtU' },
+    { title: 'Chop Suey!', artist: 'System of a Down', spotifyId: 'fakeida3', albumArt: '', duration: '3:30', durationMs: 210000, videoId: 'CSvFpBOe8eY' },
+    { title: 'Down with the Sickness', artist: 'Disturbed', spotifyId: 'fakeida4', albumArt: '', duration: '4:39', durationMs: 279000, videoId: '09LTT0xwdfw' },
+    { title: 'Last Resort', artist: 'Papa Roach', spotifyId: 'fakeida5', albumArt: '', duration: '3:19', durationMs: 199000, videoId: 'j0lSpNtjPM8' },
+  ],
+  calm: [
+    { title: 'Weightless', artist: 'Marconi Union', spotifyId: 'fakeidc1', albumArt: '', duration: '8:09', durationMs: 489000, videoId: 'UfcAVejslrU' },
+    { title: 'Sunset Lover', artist: 'Petit Biscuit', spotifyId: 'fakeidc2', albumArt: '', duration: '3:41', durationMs: 221000, videoId: 'wuCK-oiE3rM' },
+    { title: 'River Flows in You', artist: 'Yiruma', spotifyId: 'fakeidc3', albumArt: '', duration: '3:45', durationMs: 225000, videoId: '7maJOI3QMu0' },
+    { title: 'Experience', artist: 'Ludovico Einaudi', spotifyId: 'fakeidc4', albumArt: '', duration: '5:15', durationMs: 315000, videoId: 'hN_q-_nGv4U' },
+    { title: 'Breathe Me', artist: 'Sia', spotifyId: 'fakeidc5', albumArt: '', duration: '4:35', durationMs: 275000, videoId: 'ghPcYqn0p4Y' },
+  ],
+  relaxed: [
+    { title: 'Sunset Lover', artist: 'Petit Biscuit', spotifyId: 'fakeidrl1', albumArt: '', duration: '3:41', durationMs: 221000, videoId: 'wuCK-oiE3rM' },
+    { title: 'River Flows in You', artist: 'Yiruma', spotifyId: 'fakeidrl2', albumArt: '', duration: '3:45', durationMs: 225000, videoId: '7maJOI3QMu0' },
+    { title: 'Weightless', artist: 'Marconi Union', spotifyId: 'fakeidrl3', albumArt: '', duration: '8:09', durationMs: 489000, videoId: 'UfcAVejslrU' },
+    { title: 'Breathe Me', artist: 'Sia', spotifyId: 'fakeidrl4', albumArt: '', duration: '4:35', durationMs: 275000, videoId: 'ghPcYqn0p4Y' },
+    { title: 'Somewhere Over the Rainbow', artist: "Israel Kamakawiwo'ole", spotifyId: 'fakeidrl5', albumArt: '', duration: '5:04', durationMs: 304000, videoId: 'V1bFr2SWP1I' },
+  ],
+  anxious: [
+    { title: 'Lean on Me', artist: 'Bill Withers', spotifyId: 'fakeidx1', albumArt: '', duration: '4:22', durationMs: 262000, videoId: 'fOZ-MySzAQo' },
+    { title: 'Here Comes the Sun', artist: 'The Beatles', spotifyId: 'fakeidx2', albumArt: '', duration: '3:05', durationMs: 185000, videoId: 'KQetemT1sWc' },
+    { title: 'Three Little Birds', artist: 'Bob Marley', spotifyId: 'fakeidx3', albumArt: '', duration: '3:00', durationMs: 180000, videoId: 'zaGUr6wDTO0' },
+    { title: "Don't Worry Be Happy", artist: 'Bobby McFerrin', spotifyId: 'fakeidx4', albumArt: '', duration: '4:50', durationMs: 290000, videoId: 'd-diB65scQU' },
+    { title: 'What a Wonderful World', artist: 'Louis Armstrong', spotifyId: 'fakeidx5', albumArt: '', duration: '2:21', durationMs: 141000, videoId: 'A3yCcXgbKrE' },
+  ],
+  lonely: [
+    { title: 'Lonely', artist: 'Akon', spotifyId: 'fakeidl1', albumArt: '', duration: '4:25', durationMs: 265000, videoId: '6EEW-9NDM5k' },
+    { title: 'Mad World', artist: 'Gary Jules', spotifyId: 'fakeidl2', albumArt: '', duration: '3:08', durationMs: 188000, videoId: '4N3N1MlvVhw' },
+    { title: 'Creep', artist: 'Radiohead', spotifyId: 'fakeidl3', albumArt: '', duration: '3:58', durationMs: 238000, videoId: 'XFkzRNyygfk' },
+    { title: 'Wish You Were Here', artist: 'Pink Floyd', spotifyId: 'fakeidl4', albumArt: '', duration: '5:34', durationMs: 334000, videoId: 'IXdNnw99-Ic' },
+    { title: 'Hallelujah', artist: 'Jeff Buckley', spotifyId: 'fakeidl5', albumArt: '', duration: '6:53', durationMs: 413000, videoId: 'y8AWFf7EAc4' },
+  ],
+  focused: [
+    { title: 'Experience', artist: 'Ludovico Einaudi', spotifyId: 'fakeidf1', albumArt: '', duration: '5:15', durationMs: 315000, videoId: 'hN_q-_nGv4U' },
+    { title: 'Time', artist: 'Hans Zimmer', spotifyId: 'fakeidf2', albumArt: '', duration: '4:35', durationMs: 275000, videoId: 'RxabLA7UQ9k' },
+    { title: 'Intro', artist: 'The xx', spotifyId: 'fakeidf3', albumArt: '', duration: '2:07', durationMs: 127000, videoId: 'xMV6l2y67rk' },
+    { title: 'Strobe', artist: 'Deadmau5', spotifyId: 'fakeidf4', albumArt: '', duration: '10:37', durationMs: 637000, videoId: 'tKi9Z-f6qX4' },
+    { title: 'River Flows in You', artist: 'Yiruma', spotifyId: 'fakeidf5', albumArt: '', duration: '3:45', durationMs: 225000, videoId: '7maJOI3QMu0' },
+  ],
+  romantic: [
+    { title: 'Perfect', artist: 'Ed Sheeran', spotifyId: 'fakeidr1', albumArt: '', duration: '4:23', durationMs: 263000, videoId: '2Vv-BfVoq4g' },
+    { title: 'All of Me', artist: 'John Legend', spotifyId: 'fakeidr2', albumArt: '', duration: '5:00', durationMs: 300000, videoId: '450p7goxZqg' },
+    { title: 'Thinking Out Loud', artist: 'Ed Sheeran', spotifyId: 'fakeidr3', albumArt: '', duration: '4:41', durationMs: 281000, videoId: 'lp-EO5I60KA' },
+    { title: 'A Thousand Years', artist: 'Christina Perri', spotifyId: 'fakeidr4', albumArt: '', duration: '4:45', durationMs: 285000, videoId: 'rtOvBOTyX00' },
+    { title: "Can't Help Falling in Love", artist: 'Elvis Presley', spotifyId: 'fakeidr5', albumArt: '', duration: '3:00', durationMs: 180000, videoId: 'vGJTaP6anOU' },
+  ],
+  neutral: [
+    { title: 'Blinding Lights', artist: 'The Weeknd', spotifyId: 'fakeidn1', albumArt: '', duration: '3:20', durationMs: 200000, videoId: '4NRXx6U8ABQ' },
+    { title: 'Bohemian Rhapsody', artist: 'Queen', spotifyId: 'fakeidn2', albumArt: '', duration: '5:55', durationMs: 355000, videoId: 'fJ9rUzIMcZQ' },
+    { title: 'Rolling in the Deep', artist: 'Adele', spotifyId: 'fakeidn3', albumArt: '', duration: '3:48', durationMs: 228000, videoId: 'rYEDA3JcQqw' },
+    { title: 'Take Me to Church', artist: 'Hozier', spotifyId: 'fakeidn4', albumArt: '', duration: '4:01', durationMs: 241000, videoId: 'PVjiKRfKpPI' },
+    { title: 'Viva la Vida', artist: 'Coldplay', spotifyId: 'fakeidn5', albumArt: '', duration: '4:01', durationMs: 241000, videoId: 'dvgZkm1xWPE' },
+  ],
+};
 
 module.exports = { getRecommendationsByMood, MOOD_SEARCH_QUERIES };
