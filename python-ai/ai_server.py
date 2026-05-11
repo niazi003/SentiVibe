@@ -71,6 +71,16 @@ def call_ollama(prompt: str) -> str:
         )
     except requests.exceptions.Timeout:
         raise RuntimeError("Ollama timed out. Try a smaller model or check resources.")
+    except requests.exceptions.HTTPError as e:
+        # Surface the actual error from Ollama (e.g. model not found, OOM)
+        detail = ""
+        try:
+            detail = e.response.text[:200]
+        except Exception:
+            pass
+        raise RuntimeError(
+            f"Ollama returned {e.response.status_code}: {detail or str(e)}"
+        )
 
 
 def extract_json(raw: str) -> dict:
