@@ -194,6 +194,104 @@ async function initSpotify() {
 }
 
 /**
+ * Spotify API wrapper compatibility:
+ * Some environments respond with "Invalid limit" when using the options-object
+ * signature. Retry with the legacy positional args signature.
+ *
+ * @param {SpotifyWebApi} api
+ * @param {string} query
+ * @param {{ limit: number, market: string }} options
+ */
+async function searchTracksCompat(api, query, options) {
+  const limit = Math.max(1, Math.min(50, Number(options?.limit) || 10));
+  const market = String(options?.market || 'US');
+  try {
+    return await api.searchTracks(query, { limit, market });
+  } catch (e) {
+    const msg = e?.body?.error?.message || e?.message || '';
+    if (!String(msg).toLowerCase().includes('invalid limit')) throw e;
+    return await api.searchTracks(query, limit, 0, market);
+  }
+}
+
+/**
+ * GET /artists/{id}/top-tracks — Spotify has been returning **403 Forbidden** for many
+ * apps (user token and client-credentials, multiple markets). Search still works, so
+ * we fall back to `searchTracks(artist:"…")` and return the same `{ body: { tracks } }`
+ * shape as getArtistTopTracks.
+ *
+ * @param {SpotifyWebApi} userApi
+ * @param {string} artistId
+ * @param {string} market ISO country code (e.g. from getMe().country)
+ * @param {string} [artistName] — required for search fallback when top-tracks is blocked
+ */
+async function getArtistTopTracksWithFallback(userApi, artistId, market, artistName) {
+  const statusOf = (err) =>
+    err &&
+    (err.statusCode || err.status || err.body?.error?.status || err.response?.status);
+  const messageOf = (err) => {
+    try {
+      if (err.body?.error?.message) return err.body.error.message;
+    } catch (_) {
+      /* ignore */
+    }
+    return err?.message || String(err);
+  };
+
+  try {
+    return await userApi.getArtistTopTracks(artistId, market);
+  } catch (userErr) {
+    const sc = statusOf(userErr);
+    if (sc !== 403 && sc !== 401) throw userErr;
+    console.warn(
+      `[Spotify] Artist top-tracks ${sc} with user token (${messageOf(userErr)}). Retrying with app (client-credentials) token.`
+    );
+  }
+
+  const appApi = await initSpotify();
+  const markets = [...new Set([market, 'US'].filter(Boolean))];
+  let lastErr;
+  for (let i = 0; i < markets.length; i += 1) {
+    const mkt = markets[i];
+    try {
+      return await appApi.getArtistTopTracks(artistId, mkt);
+    } catch (e) {
+      lastErr = e;
+      const sc = statusOf(e);
+      if (i < markets.length - 1) {
+        console.warn(`[Spotify] Artist top-tracks ${sc} for market=${mkt}, trying fallback market…`);
+      }
+    }
+  }
+
+  // Spotify often blocks /artists/{id}/top-tracks entirely; approximate with search.
+  const name = (artistName || '').replace(/"/g, '').trim();
+  if (!name) throw lastErr;
+
+  console.warn(
+    `[Spotify] Artist top-tracks API unavailable for "${name}" — using track search instead.`
+  );
+  const q = `artist:"${name}"`;
+  const searchApis = [userApi, appApi];
+  const searchMarkets = [...new Set([market, 'US'].filter(Boolean))];
+
+  for (const api of searchApis) {
+    for (const mkt of searchMarkets) {
+      try {
+        const r = await searchTracksCompat(api, q, { limit: 10, market: mkt });
+        const items = r.body?.tracks?.items || [];
+        if (items.length > 0) {
+          return { body: { tracks: items } };
+        }
+      } catch (e) {
+        lastErr = e;
+      }
+    }
+  }
+  throw lastErr;
+}
+
+/**
  * Look up a known YouTube videoId for a track.
  * Uses fuzzy matching on "title - artist" against the KNOWN_VIDEO_IDS table.
  */
@@ -268,7 +366,7 @@ function ingestTrackObjects(rawTracks, seenIds, seenTitles, excludeIds, sink) {
 /**
  * Mood-based track search (client-credentials API). Used as default and to fill gaps.
  */
-async function getTracksFromMoodSearchOnly(api, mood, limit, excludeIds = new Set()) {
+async function getTracksFromMoodSearchOnly(api, mood, limit, excludeIds = new Set(), market = 'US') {
   const queries = MOOD_SEARCH_QUERIES[mood] || MOOD_SEARCH_QUERIES.neutral;
   const isTopUp = excludeIds && excludeIds.size > 0;
   if (isTopUp) {
@@ -285,7 +383,7 @@ async function getTracksFromMoodSearchOnly(api, mood, limit, excludeIds = new Se
   const searchPromises = queries.map(async (query) => {
     const perQuery = Math.ceil(limit / queries.length) + 5;
     try {
-      const result = await api.searchTracks(query, { limit: perQuery, market: 'PK' });
+      const result = await searchTracksCompat(api, query, { limit: perQuery, market });
       return result.body.tracks?.items || [];
     } catch (err) {
       console.warn(`[Spotify] Query failed: "${query}"`, err.message);
@@ -392,6 +490,16 @@ async function buildPersonalizedMoodTracks(userApi, mood, userPrefs, limit) {
   const seenIds = new Set();
   const seenTitles = new Set();
 
+  // Detect user's country for correct market
+  let market = 'US';
+  try {
+    const me = await userApi.getMe();
+    market = me.body?.country || 'US';
+    console.log(`[Spotify] User market: ${market}`);
+  } catch {
+    console.warn('[Spotify] Could not detect user market, defaulting to US');
+  }
+
   // Priority buckets (higher priority = added first)
   const fromTopTracks = [];
   const fromArtistTopTracks = [];
@@ -421,9 +529,10 @@ async function buildPersonalizedMoodTracks(userApi, mood, userPrefs, limit) {
   const searchQueries = buildSmartSearchQueries(mood, userPrefs);
   console.log(`[Spotify] Smart search queries: ${JSON.stringify(searchQueries)}`);
 
+  const perQuery = Math.min(20, Math.max(8, Math.ceil(limit / Math.max(1, searchQueries.length)) + 6));
   const searchPromises = searchQueries.map(async (query) => {
     try {
-      const result = await userApi.searchTracks(query, { limit: 8, market: 'US' });
+      const result = await searchTracksCompat(userApi, query, { limit: perQuery, market });
       return result.body.tracks?.items || [];
     } catch (err) {
       console.warn(`[Spotify] Preference query failed: "${query}"`, err.message);
@@ -441,7 +550,7 @@ async function buildPersonalizedMoodTracks(userApi, mood, userPrefs, limit) {
   const artistSlice = topArtists.slice(0, 3);
   for (const artist of artistSlice) {
     try {
-      const res = await userApi.getArtistTopTracks(artist.id, 'US');
+      const res = await getArtistTopTracksWithFallback(userApi, artist.id, market, artist.name);
       const rawTracks = res.body.tracks || [];
       ingestTrackObjects(rawTracks, seenIds, seenTitles, null, fromArtistTopTracks);
     } catch (err) {
@@ -450,28 +559,41 @@ async function buildPersonalizedMoodTracks(userApi, mood, userPrefs, limit) {
   }
   console.log(`[Spotify] Artist top tracks: ${fromArtistTopTracks.length} from ${artistSlice.length} artists`);
 
-  // ── STEP E: Merge with priority ─────────────────────────────
-  // Priority order: user top tracks > artist top tracks > preference search
+  // ── STEP E: Merge (preference-first) ─────────────────────────
+  // Keep the user's preferences (genres/language) as the main driver,
+  // then blend in top-artist tracks for personalisation.
   const merged = [];
 
-  // Add top tracks first (highest priority)
-  for (const t of fromTopTracks) {
-    if (merged.length >= limit) break;
-    merged.push(t);
-  }
-
-  // Then artist top tracks
-  for (const t of fromArtistTopTracks) {
-    if (merged.length >= limit) break;
-    merged.push(t);
-  }
-
-  // Then preference-based search results (sorted by popularity)
+  // 1. Mood-specific preference search results first (sorted by popularity)
   fromPreferenceSearch.sort((a, b) => b._popularity - a._popularity);
-  for (const t of fromPreferenceSearch) {
-    if (merged.length >= limit) break;
-    merged.push(t);
+  const targetMoodSlots = Math.min(fromPreferenceSearch.length, Math.floor(limit * 0.7));
+  const targetArtistSlots = Math.min(fromArtistTopTracks.length, Math.floor(limit * 0.25));
+  const targetTopTrackSlots = Math.min(fromTopTracks.length, 3, limit - (targetMoodSlots + targetArtistSlots));
+
+  for (let i = 0; i < targetMoodSlots; i++) merged.push(fromPreferenceSearch[i]);
+  for (let i = 0; i < targetArtistSlots && merged.length < limit; i++) merged.push(fromArtistTopTracks[i]);
+  for (let i = 0; i < targetTopTrackSlots && merged.length < limit; i++) merged.push(fromTopTracks[i]);
+
+  // Fill remaining slots (preference-first, then artists, then top tracks)
+  if (merged.length < limit) {
+    for (let i = targetMoodSlots; i < fromPreferenceSearch.length && merged.length < limit; i++) {
+      merged.push(fromPreferenceSearch[i]);
+    }
   }
+  if (merged.length < limit) {
+    for (let i = targetArtistSlots; i < fromArtistTopTracks.length && merged.length < limit; i++) {
+      merged.push(fromArtistTopTracks[i]);
+    }
+  }
+  if (merged.length < limit) {
+    for (let i = targetTopTrackSlots; i < fromTopTracks.length && merged.length < limit; i++) {
+      merged.push(fromTopTracks[i]);
+    }
+  }
+
+  const topTrackSlots = targetTopTrackSlots;
+
+  console.log(`[Spotify] Merge breakdown: ${Math.min(fromPreferenceSearch.length, limit)} mood-search + ${fromArtistTopTracks.length} artist + ${topTrackSlots} personal-flavor = ${merged.length} total`);
 
   // Strip internal _popularity field
   return merged.map(({ _popularity, ...t }) => t);
@@ -490,7 +612,7 @@ async function buildPersonalizedMoodTracks(userApi, mood, userPrefs, limit) {
  * @param {{ userAccessToken?: string | null }} [options]
  * @returns {{ tracks: Array, source: string, playlist?: object | null }}
  */
-async function getRecommendationsByMood(mood, limit = 10, options = {}) {
+async function getRecommendationsByMood(mood, limit = 50, options = {}) {
   const normalizedMood = mood.toLowerCase();
   const userAccessToken = options.userAccessToken || null;
 
@@ -511,9 +633,11 @@ async function getRecommendationsByMood(mood, limit = 10, options = {}) {
 
       // Get user's Spotify ID for preference lookup
       let userId = null;
+      let userMarket = 'US';
       try {
         const me = await userApi.getMe();
         userId = me.body?.id || null;
+        userMarket = me.body?.country || 'US';
       } catch {
         console.warn('[Spotify] Could not fetch user profile for preference lookup');
       }
@@ -536,7 +660,13 @@ async function getRecommendationsByMood(mood, limit = 10, options = {}) {
         if (rows.length < limit) {
           const api = await initSpotify();
           const exclude = new Set(rows.map(r => r.spotifyId));
-          const more = await getTracksFromMoodSearchOnly(api, normalizedMood, limit - rows.length, exclude);
+          const more = await getTracksFromMoodSearchOnly(
+            api,
+            normalizedMood,
+            limit - rows.length,
+            exclude,
+            userMarket
+          );
           rows = rows.concat(more);
         }
 
@@ -568,7 +698,7 @@ async function getRecommendationsByMood(mood, limit = 10, options = {}) {
   // ── Step 2: Generic mood keyword search via client credentials ──
   try {
     const api = await initSpotify();
-    const final = await getTracksFromMoodSearchOnly(api, normalizedMood, limit, new Set());
+    const final = await getTracksFromMoodSearchOnly(api, normalizedMood, limit, new Set(), 'US');
     if (final.length > 0) {
       logSongSource(
         `Final: ${final.length} track(s) via generic: mood keyword search (source=spotify; ${final.filter((t) => t.videoId).length} with bundled YouTube videoIds)`

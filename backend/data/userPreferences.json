@@ -2,23 +2,23 @@
   "dya0byb9dctyv728ij7nmsvvp": {
     "genres": [
       "pop",
-      "punjabi/desi",
       "k-pop",
+      "punjabi/desi",
       "urdu/hindi"
     ],
     "favoriteArtists": [
       "Hassan Raheem",
-      "Murtaza Qazalbas",
-      "Imagine Dragons"
+      "Temper City",
+      "Ali Azmat"
     ],
     "energyPreference": {
       "angry": "high",
-      "sad": "high",
+      "sad": "low",
       "calm": "medium"
     },
-    "languagePreference": "urdu+hindi",
+    "languagePreference": "mix",
     "decadePreference": "no preference",
     "onboardingComplete": true,
-    "updatedAt": "2026-05-11T15:07:50.887Z"
+    "updatedAt": "2026-05-11T16:38:17.110Z"
   }
 }

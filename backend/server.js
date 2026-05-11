@@ -70,12 +70,12 @@ app.get('/api/health', (req, res) => {
 });
 
 // ── Mobile App: Mood-based Recommendations ────────────────────
-// GET /api/recommendations?mood=happy&limit=10
+// GET /api/recommendations?mood=happy&limit=50
 // Optional: Authorization: Bearer <Spotify user access token> for playlist-based personalization
 // Pipeline: mood → (optional) Spotify personalized playlists → track search → merged result
 app.get('/api/recommendations', async (req, res) => {
   try {
-    const { mood, limit = 10 } = req.query;
+    const { mood, limit = 50 } = req.query;
 
     if (!mood) {
       return res.status(400).json({
@@ -85,7 +85,12 @@ app.get('/api/recommendations', async (req, res) => {
     }
 
     const moodNorm = mood.toLowerCase();
-    const limitNum = parseInt(String(limit), 10) || 10;
+    // Enforce a "good default" list size for UX.
+    // If the client sends limit=10, we still return 50 (user asked for 50).
+    const rawLimit = parseInt(String(limit), 10);
+    const limitNum = Number.isFinite(rawLimit)
+      ? Math.min(50, Math.max(50, rawLimit))
+      : 50;
 
     let cachePartition = 'anon';
     let userAccessToken = null;
