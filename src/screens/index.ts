@@ -2,6 +2,7 @@ export { SplashScreen } from './SplashScreen';
 export { WelcomeScreen } from './WelcomeScreen';
 export { LoginScreen } from './LoginScreen';
 export { SignupScreen } from './SignupScreen';
+export { OnboardingScreen } from './OnboardingScreen';
 export { QuestionnaireScreen } from './QuestionnaireScreen';
 export { ChatbotScreen } from './ChatbotScreen';
 export { DetectionScreen } from './DetectionScreen';
@@ -12,4 +13,5 @@ export { SettingsScreen } from './SettingsScreen';
 export { HistoryScreen } from './HistoryScreen';
 export { EmotionErrorScreen } from './EmotionErrorScreen';
 export { FavoritesScreen } from './FavoritesScreen';
+
 

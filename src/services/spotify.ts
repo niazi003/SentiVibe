@@ -17,9 +17,12 @@ const SPOTIFY_REDIRECT_URI = 'sentivibe://spotify-callback';
 const SPOTIFY_SCOPES = [
   'user-read-email',
   'user-read-private',
+  'playlist-read-private',
   'user-read-playback-state',
   'user-modify-playback-state',
   'user-read-currently-playing',
+  'user-top-read',
+  'user-read-recently-played',
 ].join(' ');
 
 const AUTH_CONFIG: AuthConfiguration = {

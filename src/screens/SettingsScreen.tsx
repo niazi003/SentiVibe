@@ -58,6 +58,19 @@ export const SettingsScreen: React.FC = () => {
 
                     <View style={styles.divider} />
 
+                    <TouchableOpacity
+                        style={styles.settingsItem}
+                        onPress={() => navigation.navigate('Onboarding', { isUpdate: true })}
+                    >
+                        <View style={styles.settingsLeft}>
+                            <Icon name="sliders" size={20} color="#A78BFA" style={ICON_STYLE} />
+                            <Text style={styles.settingsText}>Personalization Settings</Text>
+                        </View>
+                        <Icon name="chevron-right" size={16} color="#64748B" />
+                    </TouchableOpacity>
+
+                    <View style={styles.divider} />
+
                     <View style={[styles.settingsItem, styles.versionItem]}>
                         <Text style={styles.versionLabel}>App Version</Text>
                         <Text style={styles.versionValue}>v1.0.4 (Beta)</Text>

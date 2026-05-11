@@ -7,11 +7,27 @@ import Icon from 'react-native-vector-icons/Feather';
 import { GlassCard, Button } from '../components';
 import { NavigationProp } from '../types';
 import { ICON_STYLE } from '../constants';
+import { getUserPreferences } from '../services/api';
 
 export const LoginScreen: React.FC = () => {
     const navigation = useNavigation<NavigationProp>();
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
+
+    const handleLogin = async () => {
+        // Check if onboarding is complete
+        try {
+            const prefs = await getUserPreferences();
+            if (prefs.onboardingComplete) {
+                navigation.navigate('Chatbot');
+            } else {
+                navigation.navigate('Onboarding');
+            }
+        } catch {
+            // If we can't check, just go to chatbot
+            navigation.navigate('Chatbot');
+        }
+    };
 
     return (
         <SafeAreaView style={styles.container} edges={['top']}>
@@ -61,7 +77,7 @@ export const LoginScreen: React.FC = () => {
                     </View>
 
                     <Button
-                        onPress={() => navigation.navigate('Chatbot')}
+                        onPress={handleLogin}
                         style={styles.submitButton}
                     >
                         Log In

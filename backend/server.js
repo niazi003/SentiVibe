@@ -14,7 +14,7 @@
  * 
  * Endpoints:
  *   GET  /api/health                      — Health check (all services)
- *   GET  /api/recommendations?mood=happy  — Mood-based music (Spotify + YouTube)
+ *   GET  /api/recommendations?mood=happy  — Mood-based music (optional Bearer: Spotify user token for playlist mode)
  *   POST /api/chat                        — AI chatbot (Python/LLaMA)
  *   POST /api/recommend                   — Personalized recommendations
  *   POST /api/feedback                    — Track feedback (like/skip)
@@ -29,9 +29,12 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const NodeCache = require('node-cache');
-const { getRecommendationsByMood } = require('./services/spotify');
+const crypto = require('crypto');
+const { getRecommendationsByMood, validateSpotifyUserToken } = require('./services/spotify');
 const { findVideosForTracks, searchVideo } = require('./services/youtube');
 const { swapToken, refreshToken } = require('./services/auth');
+const { getPreferences, savePreferences } = require('./services/userPreferences');
+const SpotifyWebApi = require('spotify-web-api-node');
 
 // ── Route imports ─────────────────────────────────────────────
 const chatRoutes = require('./routes/chat');
@@ -68,7 +71,8 @@ app.get('/api/health', (req, res) => {
 
 // ── Mobile App: Mood-based Recommendations ────────────────────
 // GET /api/recommendations?mood=happy&limit=10
-// Pipeline: mood → Spotify search → YouTube video lookup → merged result
+// Optional: Authorization: Bearer <Spotify user access token> for playlist-based personalization
+// Pipeline: mood → (optional) Spotify personalized playlists → track search → merged result
 app.get('/api/recommendations', async (req, res) => {
   try {
     const { mood, limit = 10 } = req.query;
@@ -80,26 +84,55 @@ app.get('/api/recommendations', async (req, res) => {
       });
     }
 
-    const cacheKey = `recommendations_${mood.toLowerCase()}_${limit}`;
+    const moodNorm = mood.toLowerCase();
+    const limitNum = parseInt(String(limit), 10) || 10;
+
+    let cachePartition = 'anon';
+    let userAccessToken = null;
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const raw = authHeader.slice(7).trim();
+      if (raw) {
+        const valid = await validateSpotifyUserToken(raw);
+        if (valid) {
+          userAccessToken = raw;
+          cachePartition = crypto.createHash('sha256').update(raw).digest('hex').slice(0, 12);
+        } else {
+          console.warn('[API] Ignoring invalid Spotify Bearer on /recommendations');
+        }
+      }
+    }
+
+    const cacheKey = `recommendations_${moodNorm}_${limitNum}_${cachePartition}`;
 
     // Check cache first — avoid burning API quota
     const cached = cache.get(cacheKey);
     if (cached) {
       console.log(`[Cache] HIT for mood: ${mood}`);
+      const tracks = Array.isArray(cached) ? cached : cached.tracks;
+      const source = cached.source ?? 'spotify';
+      const playlist = cached.playlist ?? null;
+      console.log(
+        `[Song source] /api/recommendations cache HIT — ${tracks.length} track(s), source=${source}` +
+          (playlist?.name ? `, was playlist="${playlist.name}"` : '')
+      );
       return res.json({
-        mood: mood.toLowerCase(),
-        tracks: cached,
+        mood: moodNorm,
+        tracks,
         cached: true,
-        count: cached.length,
+        count: tracks.length,
+        source,
+        playlist,
       });
     }
 
     console.log(`[Cache] MISS for mood: ${mood}, fetching fresh data...`);
 
     // Step 1: Get track recommendations from Spotify (or fallback)
-    const { tracks: spotifyTracks, source } = await getRecommendationsByMood(
+    const { tracks: spotifyTracks, source, playlist } = await getRecommendationsByMood(
       mood,
-      parseInt(limit)
+      limitNum,
+      { userAccessToken }
     );
 
     if (!spotifyTracks || spotifyTracks.length === 0) {
@@ -130,15 +163,21 @@ app.get('/api/recommendations', async (req, res) => {
       };
     });
 
-    // Cache the merged results
-    cache.set(cacheKey, mergedTracks);
+    // Cache the merged results (store source + playlist for cache hits)
+    cache.set(cacheKey, { tracks: mergedTracks, source, playlist: playlist || null });
+
+    console.log(
+      `[Song source] /api/recommendations fresh fetch — ${mergedTracks.length} track(s), source=${source}` +
+        (playlist?.name ? `, playlist="${playlist.name}"` : '')
+    );
 
     res.json({
-      mood: mood.toLowerCase(),
+      mood: moodNorm,
       tracks: mergedTracks,
       cached: false,
       count: mergedTracks.length,
-      source, // 'spotify' or 'fallback'
+      source,
+      playlist: playlist || null,
     });
   } catch (error) {
     // Spotify SDK throws objects with body/statusCode, not standard Errors
@@ -236,6 +275,82 @@ app.post('/api/auth/refresh', async (req, res) => {
       error: 'Token refresh failed',
       message: error.response?.data?.error_description || error.message,
     });
+  }
+});
+
+// ── User Preferences ──────────────────────────────────────────
+
+/**
+ * Extract Spotify user ID from a Bearer token.
+ * Returns null if the token is invalid or missing.
+ */
+async function getSpotifyUserId(authHeader) {
+  if (!authHeader || !authHeader.startsWith('Bearer ')) return null;
+  const token = authHeader.slice(7).trim();
+  if (!token) return null;
+  try {
+    const api = new SpotifyWebApi({ accessToken: token });
+    const me = await api.getMe();
+    return me.body?.id || null;
+  } catch {
+    return null;
+  }
+}
+
+// GET /api/user/preferences — read preferences for the authenticated user
+app.get('/api/user/preferences', async (req, res) => {
+  try {
+    const userId = await getSpotifyUserId(req.headers.authorization);
+    if (!userId) {
+      return res.status(401).json({ error: 'Valid Spotify Bearer token required' });
+    }
+    const prefs = getPreferences(userId);
+    res.json(prefs);
+  } catch (error) {
+    console.error('[Preferences] GET error:', error.message || error);
+    res.status(500).json({ error: 'Failed to read preferences' });
+  }
+});
+
+// POST /api/user/preferences — save/update preferences for the authenticated user
+app.post('/api/user/preferences', async (req, res) => {
+  try {
+    const userId = await getSpotifyUserId(req.headers.authorization);
+    if (!userId) {
+      return res.status(401).json({ error: 'Valid Spotify Bearer token required' });
+    }
+
+    const { genres, favoriteArtists, energyPreference, languagePreference, decadePreference } = req.body;
+    const result = savePreferences(userId, {
+      genres,
+      favoriteArtists,
+      energyPreference,
+      languagePreference,
+      decadePreference,
+    });
+
+    if (!result.success) {
+      return res.status(400).json({ error: 'Validation failed', details: result.errors });
+    }
+
+    // Invalidate cached recommendations for this user so new prefs take effect
+    const userHash = crypto.createHash('sha256').update(req.headers.authorization.slice(7).trim()).digest('hex').slice(0, 12);
+    const keys = cache.keys();
+    let cleared = 0;
+    for (const key of keys) {
+      if (key.includes(userHash)) {
+        cache.del(key);
+        cleared++;
+      }
+    }
+    if (cleared > 0) {
+      console.log(`[Cache] Cleared ${cleared} cached recommendation(s) for user ${userId} after preference update`);
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('[Preferences] POST error:', error.message || error);
+    res.status(500).json({ error: 'Failed to save preferences' });
   }
 });
 

@@ -8,6 +8,7 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { TrackRecommendation, ApiResponse } from '../types';
+import { getAccessToken } from './spotify';
 
 // ─────────────────────────────────────────────────────────────
 // SINGLE GATEWAY URL — change this ONE value for ngrok
@@ -36,9 +37,15 @@ export async function fetchRecommendations(
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
 
+    const spotifyToken = await getAccessToken().catch(() => null);
+    const headers: Record<string, string> = {};
+    if (spotifyToken) {
+      headers.Authorization = `Bearer ${spotifyToken}`;
+    }
+
     const response = await fetch(
       `${BASE_URL}/recommendations?mood=${encodeURIComponent(mood)}&limit=${limit}`,
-      { signal: controller.signal }
+      { signal: controller.signal, headers }
     );
 
     clearTimeout(timeoutId);
@@ -50,9 +57,10 @@ export async function fetchRecommendations(
 
     const data = await response.json();
 
-    // Cache successful result for offline fallback
+    // Cache per mood (and rough auth tier) so personalized lists are not shown offline as generic cache
+    const cacheTier = spotifyToken ? 'auth' : 'guest';
     await AsyncStorage.setItem(
-      `${CACHE_KEY_PREFIX}${mood.toLowerCase()}`,
+      `${CACHE_KEY_PREFIX}${mood.toLowerCase()}_${cacheTier}`,
       JSON.stringify(data.tracks)
     ).catch(() => {}); // Don't fail if storage write fails
 
@@ -67,9 +75,17 @@ export async function fetchRecommendations(
 
     // Attempt to load cached data as fallback
     try {
-      const cachedData = await AsyncStorage.getItem(
-        `${CACHE_KEY_PREFIX}${mood.toLowerCase()}`
-      );
+      const moodKey = mood.toLowerCase();
+      const spotifyToken = await getAccessToken().catch(() => null);
+      const tier = spotifyToken ? 'auth' : 'guest';
+      let cachedData = await AsyncStorage.getItem(`${CACHE_KEY_PREFIX}${moodKey}_${tier}`);
+      if (!cachedData && tier === 'auth') {
+        cachedData = await AsyncStorage.getItem(`${CACHE_KEY_PREFIX}${moodKey}_guest`);
+      }
+      if (!cachedData) {
+        cachedData = await AsyncStorage.getItem(`${CACHE_KEY_PREFIX}${moodKey}`);
+      }
+
 
       if (cachedData) {
         return {
@@ -307,5 +323,75 @@ export async function checkHealth(): Promise<boolean> {
     return response.ok;
   } catch {
     return false;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// USER PREFERENCES
+// ─────────────────────────────────────────────────────────────
+
+export interface UserPreferences {
+  genres?: string[];
+  favoriteArtists?: string[];
+  energyPreference?: Record<string, string>;
+  languagePreference?: string;
+  decadePreference?: string;
+  onboardingComplete?: boolean;
+  updatedAt?: string;
+}
+
+/**
+ * Fetch user preferences from the backend.
+ * Returns empty object if no preferences are set.
+ */
+export async function getUserPreferences(): Promise<UserPreferences> {
+  try {
+    const token = await getAccessToken().catch(() => null);
+    if (!token) return {};
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
+
+    const response = await fetch(`${BASE_URL}/user/preferences`, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+    if (!response.ok) return {};
+    return await response.json();
+  } catch (error) {
+    console.warn('[API] getUserPreferences failed:', error);
+    return {};
+  }
+}
+
+/**
+ * Save user preferences to the backend.
+ */
+export async function saveUserPreferences(prefs: Partial<UserPreferences>): Promise<{ success: boolean }> {
+  try {
+    const token = await getAccessToken().catch(() => null);
+    if (!token) return { success: false };
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
+
+    const response = await fetch(`${BASE_URL}/user/preferences`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(prefs),
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+    if (!response.ok) return { success: false };
+    return await response.json();
+  } catch (error) {
+    console.warn('[API] saveUserPreferences failed:', error);
+    return { success: false };
   }
 }

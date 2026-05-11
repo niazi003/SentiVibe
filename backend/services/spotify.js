@@ -1,14 +1,19 @@
 /**
- * Spotify Service — Search API with Mood-Based Personalization
- * 
- * Uses Spotify Search API to find mood-appropriate tracks.
- * Searches specifically for popular, well-known songs that will
- * have YouTube music videos available.
- * 
- * No Recommendations API (deprecated by Spotify, returns 404).
+ * Spotify Service — mood-based tracks
+ *
+ * Recommendation flow:
+ *   Step 1 → Try personalized search (uses user top tracks/artists + preferences)
+ *   Step 2 → Fall back to mood keyword search (client credentials)
+ *   Step 3 → Fall back to FALLBACK_DATA (static, guaranteed YouTube IDs)
+ *
+ * NOTE: Spotify's Recommendations API, audio-features, audio-analysis,
+ * browse/featured-playlists, and related-artists endpoints are ALL deprecated
+ * as of November 27, 2024. "Made For You" playlists are never exposed via API.
+ * None of those are used here.
  */
 
 const SpotifyWebApi = require('spotify-web-api-node');
+const { getPreferences } = require('./userPreferences');
 
 /**
  * Mood → multiple search queries for variety.
@@ -16,18 +21,44 @@ const SpotifyWebApi = require('spotify-web-api-node');
  * that are guaranteed to exist on YouTube.
  */
 const MOOD_SEARCH_QUERIES = {
-  happy:    ['pharrell happy uptown funk', 'feel good pop hits 2024', 'dance pop chart hits', 'justin timberlake dua lipa'],
-  sad:      ['adele someone like you fix you', 'lewis capaldi sad love song', 'billie eilish lovely sad', 'heartbreak ballad hits'],
-  excited:  ['eye of the tiger lose yourself', 'queen dont stop me now', 'workout pump up rock hits', 'eminem kanye hype'],
-  angry:    ['linkin park numb in the end', 'system of a down rage', 'disturbed metal rock hits', 'papa roach punk hits'],
-  calm:     ['yiruma river flows einaudi', 'chill acoustic singer songwriter', 'lofi chill songs 2024', 'norah jones jack johnson'],
+  happy:    ['happy hits', 'feel good pop', 'good vibes music', 'dance pop chart hits'],
+  sad:      ['sad songs', 'heartbreak playlist', 'emotional ballads', 'lewis capaldi sad love song'],
+  excited:  ['pump up songs', 'hype music', 'party hits', 'workout pump up rock hits'],
+  angry:    ['angry rap', 'hard rock workout', 'rage music', 'linkin park disturbed metal'],
+  calm:     ['chill lofi', 'peaceful acoustic', 'relaxing ambient', 'yiruma river flows einaudi'],
   relaxed:  ['jack johnson acoustic chill', 'jason mraz colbie caillat', 'chill indie folk popular', 'bon iver iron and wine'],
   anxious:  ['bob marley three little birds', 'beatles here comes the sun', 'lean on me bill withers', 'comforting classic songs'],
   lonely:   ['radiohead creep lonely akon', 'pink floyd wish you were here', 'bon iver skinny love', 'indie sad songs popular'],
-  focused:  ['hans zimmer interstellar time', 'the xx intro deadmau5', 'classical piano focus study', 'einaudi yiruma focus'],
+  focused:  ['focus music', 'deep work playlist', 'concentration beats', 'hans zimmer interstellar time'],
   romantic: ['ed sheeran perfect thinking out loud', 'john legend all of me', 'elvis cant help falling love', 'romantic ballad hits'],
-  neutral:  ['coldplay viva la vida clocks', 'queen bohemian rhapsody', 'adele rolling in the deep', 'hozier weeknd hit songs'],
+  neutral:  ['top hits today', 'popular songs', 'trending music', 'hozier weeknd hit songs'],
 };
+
+/** Mood synonym helpers for building smart search queries */
+const MOOD_ADJECTIVES = {
+  happy:    ['happy', 'feel good', 'upbeat', 'joyful'],
+  sad:      ['sad', 'heartbreak', 'emotional', 'melancholy'],
+  excited:  ['hype', 'pump up', 'energetic', 'party'],
+  angry:    ['angry', 'rage', 'intense', 'aggressive'],
+  calm:     ['calm', 'peaceful', 'soothing', 'relaxing'],
+  relaxed:  ['chill', 'mellow', 'laid back', 'easy listening'],
+  anxious:  ['comforting', 'uplifting', 'soothing', 'reassuring'],
+  lonely:   ['lonely', 'introspective', 'solitude', 'reflective'],
+  focused:  ['focus', 'concentration', 'deep work', 'ambient'],
+  romantic: ['romantic', 'love', 'sensual', 'intimate'],
+  neutral:  ['popular', 'trending', 'top hits', 'chart'],
+};
+
+const JUNK_KEYWORDS = [
+  'karaoke', 'piano cover', 'cover version', 'backing track', 'tribute', 'made popular',
+  'vocal version', 'backing version', 'instrumental version',
+  'party tyme', 'in the style of', 'originally performed',
+  'workout mix', 'fitness version', '8-bit', 'lullaby',
+  'music box', 'midi', 'for dogs', 'for cats', 'for pets',
+  'for babies', 'white noise', 'rain sounds', 'nature sounds',
+  'sleep sounds', 'asmr', 'meditation', 'hypnosis', 'breeds',
+  'canine', 'terrier', 'relaxation for',
+];
 
 /**
  * Well-known YouTube video IDs for popular songs.
@@ -54,7 +85,7 @@ const KNOWN_VIDEO_IDS = {
   'all of me - john legend': '450p7goxZqg',
   'say something - a great big world, christina aguilera': '-2U0Ivkn2Ds',
   'someone you loved - lewis capaldi': 'bCuhuePlP8o',
-  'when the party\'s over - billie eilish': 'pbMwTqkKSps',
+  "when the party's over - billie eilish": 'pbMwTqkKSps',
   'lovely - billie eilish, khalid': 'V1Pl8CzNzCw',
   'the night we met - lord huron': 'KtlgYxa6BMU',
   'skinny love - bon iver': 'ssdgFoHLwnk',
@@ -93,7 +124,7 @@ const KNOWN_VIDEO_IDS = {
   'experience - ludovico einaudi': 'hN_q-_nGv4U',
   'clair de lune - claude debussy': 'CvFH_6DNRCY',
   'moonlight sonata - ludwig van beethoven': '4Tr0otuiQuU',
-  'somewhere over the rainbow - israel kamakawiwo\'ole': 'V1bFr2SWP1I',
+  "somewhere over the rainbow - israel kamakawiwo'ole": 'V1bFr2SWP1I',
   // Anxious
   'lean on me - bill withers': 'fOZ-MySzAQo',
   'here comes the sun - the beatles': 'KQetemT1sWc',
@@ -108,13 +139,13 @@ const KNOWN_VIDEO_IDS = {
   'space oddity - david bowie': 'iYYRH4apXDo',
   'hallelujah - jeff buckley': 'y8AWFf7EAc4',
   'wish you were here - pink floyd': 'IXdNnw99-Ic',
-  'nothing compares 2 u - sinéad o\'connor': '0-EF60neguk',
+  "nothing compares 2 u - sinéad o'connor": '0-EF60neguk',
   // Focused
   'time - hans zimmer': 'RxabLA7UQ9k',
   'intro - the xx': 'xMV6l2y67rk',
   'strobe - deadmau5': 'tKi9Z-f6qX4',
   'interstellar main theme - hans zimmer': 'kpz8lpoLvrA',
-  'comptine d\'un autre été - yann tiersen': 'NvryolGa19A',
+  "comptine d'un autre été - yann tiersen": 'NvryolGa19A',
   // Romantic
   'perfect - ed sheeran': '2Vv-BfVoq4g',
   'thinking out loud - ed sheeran': 'lp-EO5I60KA',
@@ -189,105 +220,380 @@ function findKnownVideoId(title, artist) {
   return null;
 }
 
-/**
- * Get mood-based song recommendations via Spotify Search API.
- * 
- * Searches for popular, well-known songs matching the mood.
- * Attaches known YouTube videoIds when available.
- * 
- * @param {string} mood - Detected mood
- * @param {number} limit - Number of tracks to return
- * @returns {{ tracks: Array, source: 'spotify' | 'fallback' }}
- */
-async function getRecommendationsByMood(mood, limit = 10) {
-  const normalizedMood = mood.toLowerCase();
+/** One-line trace: where recommendation tracks came from. */
+function logSongSource(message) {
+  console.log(`[Song source] ${message}`);
+}
 
+function isJunkTitleArtist(titleLower, artistLower) {
+  return JUNK_KEYWORDS.some((kw) => titleLower.includes(kw) || artistLower.includes(kw));
+}
+
+function spotifyTrackToRow(track) {
+  const artist = track.artists.map((a) => a.name).join(', ');
+  const knownVideoId = findKnownVideoId(track.name, artist);
+  return {
+    title: track.name,
+    artist,
+    spotifyId: track.id,
+    albumArt: track.album.images[0]?.url || '',
+    duration: `${Math.floor(track.duration_ms / 60000)}:${String(
+      Math.floor((track.duration_ms % 60000) / 1000)
+    ).padStart(2, '0')}`,
+    durationMs: track.duration_ms,
+    videoId: knownVideoId,
+    _popularity: track.popularity || 0,
+  };
+}
+
+function ingestTrackObjects(rawTracks, seenIds, seenTitles, excludeIds, sink) {
+  for (const track of rawTracks) {
+    if (!track || !track.id || track.type !== 'track') continue;
+    if (excludeIds && excludeIds.has(track.id)) continue;
+    if (seenIds.has(track.id)) continue;
+
+    const titleLower = track.name.toLowerCase();
+    const artistLower = track.artists.map((a) => a.name).join(' ').toLowerCase();
+    if (isJunkTitleArtist(titleLower, artistLower)) continue;
+
+    const titleKey = titleLower.replace(/[^a-z0-9]/g, '');
+    if (seenTitles.has(titleKey)) continue;
+    seenTitles.add(titleKey);
+    seenIds.add(track.id);
+
+    sink.push(spotifyTrackToRow(track));
+  }
+}
+
+/**
+ * Mood-based track search (client-credentials API). Used as default and to fill gaps.
+ */
+async function getTracksFromMoodSearchOnly(api, mood, limit, excludeIds = new Set()) {
+  const queries = MOOD_SEARCH_QUERIES[mood] || MOOD_SEARCH_QUERIES.neutral;
+  const isTopUp = excludeIds && excludeIds.size > 0;
+  if (isTopUp) {
+    logSongSource(
+      `Spotify track search (supplement) — client credentials, up to ${limit} more tracks for mood="${mood}" (excluding ${excludeIds.size} track id(s))`
+    );
+  } else {
+    logSongSource(
+      `Spotify track search (primary) — client credentials + Search API, ${queries.length} mood queries for "${mood}"`
+    );
+  }
+  console.log(`[Spotify] Track search for mood: ${mood} (${queries.length} queries)`);
+
+  const searchPromises = queries.map(async (query) => {
+    const perQuery = Math.ceil(limit / queries.length) + 5;
+    try {
+      const result = await api.searchTracks(query, { limit: perQuery, market: 'PK' });
+      return result.body.tracks?.items || [];
+    } catch (err) {
+      console.warn(`[Spotify] Query failed: "${query}"`, err.message);
+      return [];
+    }
+  });
+
+  const results = await Promise.all(searchPromises);
+  const seenIds = new Set(excludeIds);
+  const seenTitles = new Set();
+  const allTracks = [];
+
+  for (const tracks of results) {
+    ingestTrackObjects(tracks, seenIds, seenTitles, null, allTracks);
+  }
+
+  allTracks.sort((a, b) => b._popularity - a._popularity);
+  return allTracks.slice(0, limit).map(({ _popularity, ...t }) => t);
+}
+
+/**
+ * Verify that an access token is a valid Spotify user session (lightweight).
+ */
+async function validateSpotifyUserToken(accessToken) {
+  if (!accessToken || typeof accessToken !== 'string') return false;
+  try {
+    const api = new SpotifyWebApi({ accessToken });
+    await api.getMe();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Build smart search queries by combining mood, user genres, and language.
+ * Falls back to MOOD_SEARCH_QUERIES if no preferences are available.
+ *
+ * @param {string} mood
+ * @param {object} userPrefs - { genres, favoriteArtists, languagePreference }
+ * @returns {string[]} search query strings
+ */
+function buildSmartSearchQueries(mood, userPrefs) {
+  const adjectives = MOOD_ADJECTIVES[mood] || MOOD_ADJECTIVES.neutral;
+  const genres = userPrefs.genres || [];
+  const artists = userPrefs.favoriteArtists || [];
+  const language = userPrefs.languagePreference || 'no preference';
+
+  // If no preferences, use default queries
+  if (genres.length === 0 && artists.length === 0 && language === 'no preference') {
+    return MOOD_SEARCH_QUERIES[mood] || MOOD_SEARCH_QUERIES.neutral;
+  }
+
+  const queries = [];
+
+  // Mood + genre combos (pick first 2 adjectives × first 3 genres)
+  for (const adj of adjectives.slice(0, 2)) {
+    for (const genre of genres.slice(0, 3)) {
+      queries.push(`${adj} ${genre}`);
+    }
+  }
+
+  // Mood + artist combos (up to 3 artists)
+  for (const artist of artists.slice(0, 3)) {
+    queries.push(`${adjectives[0]} ${artist}`);
+  }
+
+  // Language-specific queries
+  if (language === 'urdu+hindi' || language === 'mix') {
+    queries.push(`${adjectives[0]} urdu songs`);
+    queries.push(`${adjectives[0]} hindi songs`);
+    if (genres.length > 0) {
+      queries.push(`${genres[0]} urdu hindi`);
+    }
+  }
+  if (language === 'english' || language === 'mix') {
+    queries.push(`${adjectives[0]} english ${genres[0] || 'pop'}`);
+  }
+
+  // Always include at least one broad mood query
+  queries.push(`${adjectives[0]} music ${new Date().getFullYear()}`);
+
+  // Deduplicate
+  return [...new Set(queries)].slice(0, 8);
+}
+
+/**
+ * Build personalized mood tracks using user's Spotify data + saved preferences.
+ *
+ * Steps:
+ *   A. Fetch user's top artists
+ *   B. Fetch user's top tracks
+ *   C. Build smart search queries from preferences
+ *   D. Fetch top tracks from user's top artists
+ *   E. Deduplicate and prioritize
+ *
+ * @param {SpotifyWebApi} userApi - authenticated user API instance
+ * @param {string} mood
+ * @param {object} userPrefs - saved preferences from userPreferences.json
+ * @param {number} limit
+ * @returns {Array} array of track rows (same shape as spotifyTrackToRow)
+ */
+async function buildPersonalizedMoodTracks(userApi, mood, userPrefs, limit) {
+  const seenIds = new Set();
+  const seenTitles = new Set();
+
+  // Priority buckets (higher priority = added first)
+  const fromTopTracks = [];
+  const fromArtistTopTracks = [];
+  const fromPreferenceSearch = [];
+
+  // ── STEP A: Fetch user's top artists ────────────────────────
+  let topArtists = [];
+  try {
+    const res = await userApi.getMyTopArtists({ limit: 5, time_range: 'medium_term' });
+    topArtists = (res.body.items || []).map(a => ({ id: a.id, name: a.name }));
+    console.log(`[Spotify] Top artists: ${topArtists.map(a => a.name).join(', ') || '(none)'}`);
+  } catch (err) {
+    console.warn('[Spotify] Failed to fetch top artists:', err.message || err);
+  }
+
+  // ── STEP B: Fetch user's top tracks ─────────────────────────
+  try {
+    const res = await userApi.getMyTopTracks({ limit: 10, time_range: 'medium_term' });
+    const rawTracks = res.body.items || [];
+    ingestTrackObjects(rawTracks, seenIds, seenTitles, null, fromTopTracks);
+    console.log(`[Spotify] Top tracks: ${fromTopTracks.length} ingested`);
+  } catch (err) {
+    console.warn('[Spotify] Failed to fetch top tracks:', err.message || err);
+  }
+
+  // ── STEP C: Build smart search queries & execute ────────────
+  const searchQueries = buildSmartSearchQueries(mood, userPrefs);
+  console.log(`[Spotify] Smart search queries: ${JSON.stringify(searchQueries)}`);
+
+  const searchPromises = searchQueries.map(async (query) => {
+    try {
+      const result = await userApi.searchTracks(query, { limit: 8, market: 'US' });
+      return result.body.tracks?.items || [];
+    } catch (err) {
+      console.warn(`[Spotify] Preference query failed: "${query}"`, err.message);
+      return [];
+    }
+  });
+
+  const searchResults = await Promise.all(searchPromises);
+  for (const tracks of searchResults) {
+    ingestTrackObjects(tracks, seenIds, seenTitles, null, fromPreferenceSearch);
+  }
+  console.log(`[Spotify] Preference search: ${fromPreferenceSearch.length} tracks from ${searchQueries.length} queries`);
+
+  // ── STEP D: Fetch top tracks from user's top artists ────────
+  const artistSlice = topArtists.slice(0, 3);
+  for (const artist of artistSlice) {
+    try {
+      const res = await userApi.getArtistTopTracks(artist.id, 'US');
+      const rawTracks = res.body.tracks || [];
+      ingestTrackObjects(rawTracks, seenIds, seenTitles, null, fromArtistTopTracks);
+    } catch (err) {
+      console.warn(`[Spotify] Top tracks for artist "${artist.name}" failed:`, err.message);
+    }
+  }
+  console.log(`[Spotify] Artist top tracks: ${fromArtistTopTracks.length} from ${artistSlice.length} artists`);
+
+  // ── STEP E: Merge with priority ─────────────────────────────
+  // Priority order: user top tracks > artist top tracks > preference search
+  const merged = [];
+
+  // Add top tracks first (highest priority)
+  for (const t of fromTopTracks) {
+    if (merged.length >= limit) break;
+    merged.push(t);
+  }
+
+  // Then artist top tracks
+  for (const t of fromArtistTopTracks) {
+    if (merged.length >= limit) break;
+    merged.push(t);
+  }
+
+  // Then preference-based search results (sorted by popularity)
+  fromPreferenceSearch.sort((a, b) => b._popularity - a._popularity);
+  for (const t of fromPreferenceSearch) {
+    if (merged.length >= limit) break;
+    merged.push(t);
+  }
+
+  // Strip internal _popularity field
+  return merged.map(({ _popularity, ...t }) => t);
+}
+
+/**
+ * Main entry point: mood-based music recommendations.
+ *
+ * Flow:
+ *   Step 1 → Try personalized search (top tracks + artists + preferences)
+ *   Step 2 → Fall back to mood keyword search (getTracksFromMoodSearchOnly)
+ *   Step 3 → Fall back to FALLBACK_DATA (static curated list)
+ *
+ * @param {string} mood
+ * @param {number} limit
+ * @param {{ userAccessToken?: string | null }} [options]
+ * @returns {{ tracks: Array, source: string, playlist?: object | null }}
+ */
+async function getRecommendationsByMood(mood, limit = 10, options = {}) {
+  const normalizedMood = mood.toLowerCase();
+  const userAccessToken = options.userAccessToken || null;
+
+  if (userAccessToken) {
+    logSongSource(
+      `Mood="${normalizedMood}", limit=${limit}: user Spotify token present → will try personalized search first`
+    );
+  } else {
+    logSongSource(
+      `Mood="${normalizedMood}", limit=${limit}: no user Spotify token → generic mood keyword search`
+    );
+  }
+
+  // ── Step 1: Personalized search ─────────────────────────────
+  if (userAccessToken) {
+    try {
+      const userApi = new SpotifyWebApi({ accessToken: userAccessToken });
+
+      // Get user's Spotify ID for preference lookup
+      let userId = null;
+      try {
+        const me = await userApi.getMe();
+        userId = me.body?.id || null;
+      } catch {
+        console.warn('[Spotify] Could not fetch user profile for preference lookup');
+      }
+
+      const userPrefs = userId ? getPreferences(userId) : {};
+      const hasPrefs = userPrefs.onboardingComplete === true;
+
+      const personalizedTracks = await buildPersonalizedMoodTracks(
+        userApi,
+        normalizedMood,
+        userPrefs,
+        limit
+      );
+
+      if (personalizedTracks.length >= 3) {
+        // We have enough personalized tracks
+        let rows = personalizedTracks;
+
+        // Top up with generic search if we didn't hit the limit
+        if (rows.length < limit) {
+          const api = await initSpotify();
+          const exclude = new Set(rows.map(r => r.spotifyId));
+          const more = await getTracksFromMoodSearchOnly(api, normalizedMood, limit - rows.length, exclude);
+          rows = rows.concat(more);
+        }
+
+        const final = rows.slice(0, limit);
+        const sourceLabel = hasPrefs
+          ? 'personalized: top-tracks + artist-based + preference-queries'
+          : 'semi-personalized: preference-queries only';
+
+        logSongSource(
+          `Final: ${final.length} track(s) via ${sourceLabel} (source=personalized; ${final.filter(t => t.videoId).length} with bundled YouTube videoIds)`
+        );
+        console.log(
+          `[Spotify] ✅ ${sourceLabel}: ${final.length} tracks for mood=${normalizedMood}`
+        );
+        return { tracks: final, source: 'personalized', playlist: null };
+      }
+
+      logSongSource(
+        `Personalized search returned only ${personalizedTracks.length} track(s) — falling back to generic mood search`
+      );
+    } catch (err) {
+      logSongSource(
+        `Personalized search error (${err.message || err}) — falling back to generic mood search`
+      );
+      console.warn('[Spotify] Personalized flow failed:', err.message || err);
+    }
+  }
+
+  // ── Step 2: Generic mood keyword search via client credentials ──
   try {
     const api = await initSpotify();
-    const queries = MOOD_SEARCH_QUERIES[normalizedMood] || MOOD_SEARCH_QUERIES['neutral'];
-
-    console.log(`[Spotify] Searching for mood: ${normalizedMood} (${queries.length} queries)`);
-
-    const allTracks = [];
-    const seenIds = new Set();
-    const seenTitles = new Set(); // Deduplicate by normalized title
-
-    // Run all Spotify searches concurrently to significantly improve response time
-    const searchPromises = queries.map(async (query) => {
-      const perQuery = Math.ceil(limit / queries.length) + 5;
-      try {
-        const result = await api.searchTracks(query, { limit: perQuery, market: 'US' });
-        return result.body.tracks?.items || [];
-      } catch (err) {
-        console.warn(`[Spotify] Query failed: "${query}"`, err.message);
-        return [];
-      }
-    });
-
-    // Await all concurrent queries
-    const results = await Promise.all(searchPromises);
-
-    for (const tracks of results) {
-      for (const track of tracks) {
-        if (seenIds.has(track.id)) continue;
-
-        // Filter out karaoke, backing tracks, covers, instrumentals
-        const titleLower = track.name.toLowerCase();
-        const artistLower = track.artists.map(a => a.name).join(' ').toLowerCase();
-        const junkKeywords = [
-          'karaoke', 'backing track', 'tribute', 'made popular',
-          'vocal version', 'backing version', 'instrumental version',
-          'party tyme', 'in the style of', 'originally performed',
-          'workout mix', 'fitness version', '8-bit', 'lullaby',
-          'music box', 'midi', 'for dogs', 'for cats', 'for pets',
-          'for babies', 'white noise', 'rain sounds', 'nature sounds',
-          'sleep sounds', 'asmr', 'meditation', 'hypnosis', 'breeds',
-          'canine', 'terrier', 'relaxation for'
-        ];
-        const isJunk = junkKeywords.some(kw => titleLower.includes(kw) || artistLower.includes(kw));
-        if (isJunk) continue;
-
-        // Deduplicate by title (same song from different albums)
-        const titleKey = titleLower.replace(/[^a-z0-9]/g, '');
-        if (seenTitles.has(titleKey)) continue;
-        seenTitles.add(titleKey);
-
-        seenIds.add(track.id);
-
-        const artist = track.artists.map(a => a.name).join(', ');
-        const knownVideoId = findKnownVideoId(track.name, artist);
-
-        allTracks.push({
-          title: track.name,
-          artist: artist,
-          spotifyId: track.id,
-          albumArt: track.album.images[0]?.url || '',
-          duration: `${Math.floor(track.duration_ms / 60000)}:${String(
-            Math.floor((track.duration_ms % 60000) / 1000)
-          ).padStart(2, '0')}`,
-          durationMs: track.duration_ms,
-          videoId: knownVideoId, // null if not in lookup table
-          _popularity: track.popularity || 0,
-        });
-      }
+    const final = await getTracksFromMoodSearchOnly(api, normalizedMood, limit, new Set());
+    if (final.length > 0) {
+      logSongSource(
+        `Final: ${final.length} track(s) via generic: mood keyword search (source=spotify; ${final.filter((t) => t.videoId).length} with bundled YouTube videoIds)`
+      );
+      console.log(
+        `[Spotify] ✅ generic: mood keyword search — ${final.length} tracks for mood=${normalizedMood} (${final.filter((t) => t.videoId).length} with known videoIds)`
+      );
+      return { tracks: final, source: 'spotify', playlist: null };
     }
-
-    if (allTracks.length > 0) {
-      // Sort by popularity — most popular songs first (these are the ones on YouTube)
-      allTracks.sort((a, b) => b._popularity - a._popularity);
-      const final = allTracks.slice(0, limit).map(({ _popularity, ...t }) => t);
-      console.log(`[Spotify] ✅ Returning ${final.length} tracks for mood: ${normalizedMood} (${final.filter(t => t.videoId).length} with known videoIds)`);
-      return { tracks: final, source: 'spotify' };
-    }
+    logSongSource(
+      `Spotify track search returned 0 usable tracks for mood="${normalizedMood}" — using built-in FALLBACK_DATA`
+    );
   } catch (err) {
     const code = err.statusCode || err.status || 'unknown';
+    logSongSource(`Spotify track search failed (${code}) — using built-in FALLBACK_DATA`);
     console.warn(`[Spotify] API error (${code}), using fallback data`);
   }
 
-  // Fallback: return curated data with guaranteed YouTube videoIds
+  // ── Step 3: Static fallback ─────────────────────────────────
+  logSongSource(
+    `Final: fallback: FALLBACK_DATA — Spotify unavailable or empty (source=fallback, mood=${normalizedMood})`
+  );
   console.log(`[Spotify] Using fallback data for mood: ${normalizedMood}`);
-  const fallback = FALLBACK_DATA[normalizedMood] || FALLBACK_DATA['happy'];
-  return { tracks: fallback.slice(0, limit), source: 'fallback' };
+  const fallback = FALLBACK_DATA[normalizedMood] || FALLBACK_DATA.happy;
+  return { tracks: fallback.slice(0, limit), source: 'fallback', playlist: null };
 }
 
 /**
@@ -374,4 +680,8 @@ const FALLBACK_DATA = {
   ],
 };
 
-module.exports = { getRecommendationsByMood, MOOD_SEARCH_QUERIES };
+module.exports = {
+  getRecommendationsByMood,
+  validateSpotifyUserToken,
+  MOOD_SEARCH_QUERIES,
+};
