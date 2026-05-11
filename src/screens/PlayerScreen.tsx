@@ -20,10 +20,10 @@ import {
     Text,
     StyleSheet,
     TouchableOpacity,
-    ScrollView,
     Image,
     Dimensions,
 } from 'react-native';
+import { ScrollView } from 'react-native-gesture-handler';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/Feather';
