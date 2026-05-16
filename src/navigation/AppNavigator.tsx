@@ -7,7 +7,6 @@ import {
     LoginScreen,
     SignupScreen,
     OnboardingScreen,
-    QuestionnaireScreen,
     ChatbotScreen,
     DetectionScreen,
     ResultsScreen,
@@ -40,7 +39,6 @@ export const AppNavigator: React.FC = () => {
             <Stack.Screen name="Login" component={LoginScreen} />
             <Stack.Screen name="Signup" component={SignupScreen} />
             <Stack.Screen name="Onboarding" component={OnboardingScreen} />
-            <Stack.Screen name="Questionnaire" component={QuestionnaireScreen} />
             <Stack.Screen name="Chatbot" component={ChatbotScreen} />
             <Stack.Screen name="Detection" component={DetectionScreen} />
             <Stack.Screen name="Results" component={ResultsScreen} />

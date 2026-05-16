@@ -7,6 +7,7 @@
  */
 
 const axios = require('axios');
+const FormData = require('form-data');
 
 const AI_SERVICE_URL = process.env.AI_SERVICE_URL || 'http://localhost:8000';
 const EMOTION_SERVICE_URL = process.env.EMOTION_SERVICE_URL || 'http://localhost:5001';
@@ -94,4 +95,39 @@ async function detectFaceEmotion(imageBase64) {
   }
 }
 
-module.exports = { chat, detectTextEmotion, detectFaceEmotion };
+/**
+ * Forward raw audio bytes to Python /detect-voice (multipart).
+ * @param {Buffer} buffer
+ * @param {string} originalname
+ * @param {string} mimetype
+ */
+async function detectVoiceEmotion(buffer, originalname, mimetype) {
+  try {
+    const form = new FormData();
+    form.append('audio', buffer, {
+      filename: originalname || 'clip.m4a',
+      contentType: mimetype || 'application/octet-stream',
+    });
+    const response = await axios.post(`${EMOTION_SERVICE_URL}/detect-voice`, form, {
+      headers: form.getHeaders(),
+      timeout: 90_000,
+      maxBodyLength: Infinity,
+      maxContentLength: Infinity,
+    });
+    return response.data;
+  } catch (err) {
+    if (err.code === 'ECONNREFUSED') {
+      throw new Error('Emotion detection service is not running. Start it with: python emotion_server.py');
+    }
+    const data = err.response?.data;
+    const fromPython =
+      data && typeof data === 'object'
+        ? data.error || data.message
+        : typeof data === 'string'
+          ? data
+          : null;
+    throw new Error(fromPython || err.message || 'Voice detection request failed');
+  }
+}
+
+module.exports = { chat, detectTextEmotion, detectFaceEmotion, detectVoiceEmotion };

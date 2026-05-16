@@ -60,7 +60,7 @@ export const ProfileScreen: React.FC = () => {
                 <View style={styles.actions}>
                     <Button
                         variant="secondary"
-                        onPress={() => navigation.navigate('Questionnaire')}
+                        onPress={() => navigation.navigate('Onboarding', { isUpdate: true })}
                     >
                         Edit Preferences
                     </Button>

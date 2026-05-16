@@ -1,18 +1,13 @@
 /**
  * OnboardingScreen — Personalization Setup Wizard
  *
- * 4-step wizard that collects user music preferences:
- *   Step 1: Genre selection (multi-select chips)
- *   Step 2: Favorite artists (text inputs, optional)
- *   Step 3: Energy preferences per mood (toggle)
- *   Step 4: Language preference (radio buttons)
- *
- * Results are POSTed to /api/user/preferences.
+ * Collects music preferences (genres, artists, energy, language) and movie tastes
+ * (favorite film genres, movie-night vibe). Results are POSTed to /api/user/preferences.
  * Shown after first Spotify login (when onboardingComplete is false).
- * Can be re-opened from Settings for preference updates.
+ * Re-opened from Profile or Settings with isUpdate to edit saved prefs.
  */
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
     View,
     Text,
@@ -28,10 +23,10 @@ import LinearGradient from 'react-native-linear-gradient';
 import Icon from 'react-native-vector-icons/Feather';
 import { GlassCard } from '../components';
 import { NavigationProp, RootStackParamList } from '../types';
-import { saveUserPreferences } from '../services/api';
+import { getUserPreferences, saveUserPreferences } from '../services/api';
 import { ICON_STYLE } from '../constants';
 
-const TOTAL_STEPS = 4;
+const TOTAL_STEPS = 6;
 
 // ── Genre chips ─────────────────────────────────────────────────
 const GENRE_OPTIONS = [
@@ -89,6 +84,37 @@ const LANGUAGE_OPTIONS = [
     { label: 'No Preference', value: 'no preference' },
 ];
 
+// ── Movie genre chips (saved lowercase, same pattern as music genres) ──
+const MOVIE_GENRE_OPTIONS = [
+    { label: 'Comedy', emoji: '😄' },
+    { label: 'Action & Adventure', emoji: '💥' },
+    { label: 'Drama', emoji: '🎭' },
+    { label: 'Romance', emoji: '💕' },
+    { label: 'Sci-Fi', emoji: '🚀' },
+    { label: 'Fantasy', emoji: '🧙' },
+    { label: 'Horror / Thriller', emoji: '🔪' },
+    { label: 'Documentary', emoji: '📽️' },
+    { label: 'Animation', emoji: '✨' },
+    { label: 'Indie / Arthouse', emoji: '🎞️' },
+];
+
+/** What kind of films you want when we suggest a watch — drives chat / future movie picks. */
+const MOVIE_NIGHT_OPTIONS = [
+    { label: 'Comedy — I want to laugh', value: 'comedy' },
+    { label: 'Action & thrills', value: 'action' },
+    { label: 'Drama & romance — emotional stories', value: 'drama_romance' },
+    { label: 'Sci-fi & fantasy — escape reality', value: 'scifi_fantasy' },
+    { label: 'Something cozy & familiar', value: 'comfort' },
+    { label: 'Surprise me / no preference', value: 'no preference' },
+];
+
+function chipLabelsFromStored(stored: string[] | undefined, options: { label: string }[]): string[] {
+    if (!stored?.length) return [];
+    return stored
+        .map(s => options.find(o => o.label.toLowerCase() === s.toLowerCase())?.label)
+        .filter((x): x is string => Boolean(x));
+}
+
 export const OnboardingScreen: React.FC = () => {
     const navigation = useNavigation<NavigationProp>();
     const route = useRoute<RouteProp<RootStackParamList, 'Onboarding'>>();
@@ -115,6 +141,38 @@ export const OnboardingScreen: React.FC = () => {
     // Step 4: language
     const [language, setLanguage] = useState('no preference');
 
+    // Steps 5–6: movies
+    const [selectedMovieGenres, setSelectedMovieGenres] = useState<string[]>([]);
+    const [movieNightVibe, setMovieNightVibe] = useState('no preference');
+
+    // Prefill when editing from Profile / Settings (requires Spotify session)
+    useEffect(() => {
+        if (!isUpdate) return;
+        let cancelled = false;
+        (async () => {
+            const p = await getUserPreferences();
+            if (cancelled) return;
+            setSelectedGenres(chipLabelsFromStored(p.genres, GENRE_OPTIONS));
+            const artists = p.favoriteArtists ?? [];
+            setArtist1(artists[0] ?? '');
+            setArtist2(artists[1] ?? '');
+            setArtist3(artists[2] ?? '');
+            if (p.energyPreference && typeof p.energyPreference === 'object') {
+                setEnergyPrefs(prev => ({ ...prev, ...p.energyPreference }));
+            }
+            if (p.languagePreference && LANGUAGE_OPTIONS.some(o => o.value === p.languagePreference)) {
+                setLanguage(p.languagePreference as string);
+            }
+            setSelectedMovieGenres(chipLabelsFromStored(p.movieGenres, MOVIE_GENRE_OPTIONS));
+            if (p.movieNightVibe && MOVIE_NIGHT_OPTIONS.some(o => o.value === p.movieNightVibe)) {
+                setMovieNightVibe(p.movieNightVibe);
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [isUpdate]);
+
     // ── Genre toggle ──────────────────────────────────────────────
     const toggleGenre = useCallback((genre: string) => {
         setSelectedGenres(prev => {
@@ -122,6 +180,16 @@ export const OnboardingScreen: React.FC = () => {
                 return prev.filter(g => g !== genre);
             }
             if (prev.length >= 5) return prev; // max 5
+            return [...prev, genre];
+        });
+    }, []);
+
+    const toggleMovieGenre = useCallback((genre: string) => {
+        setSelectedMovieGenres(prev => {
+            if (prev.includes(genre)) {
+                return prev.filter(g => g !== genre);
+            }
+            if (prev.length >= 5) return prev;
             return [...prev, genre];
         });
     }, []);
@@ -160,6 +228,8 @@ export const OnboardingScreen: React.FC = () => {
                 favoriteArtists: [],
                 energyPreference: {},
                 languagePreference: 'no preference',
+                movieGenres: [],
+                movieNightVibe: 'no preference',
             });
         } catch {}
         setSaving(false);
@@ -186,6 +256,8 @@ export const OnboardingScreen: React.FC = () => {
                 favoriteArtists: artists,
                 energyPreference: energyPrefs,
                 languagePreference: language,
+                movieGenres: selectedMovieGenres.map(g => g.toLowerCase()),
+                movieNightVibe,
             });
 
             if (result.success) {
@@ -193,7 +265,7 @@ export const OnboardingScreen: React.FC = () => {
             } else {
                 Alert.alert('Oops', 'Could not save preferences. Please try again.');
             }
-        } catch (err) {
+        } catch {
             Alert.alert('Error', 'Failed to save preferences.');
         }
         setSaving(false);
@@ -352,7 +424,81 @@ export const OnboardingScreen: React.FC = () => {
         </View>
     );
 
-    const STEPS = [renderGenreStep, renderArtistStep, renderEnergyStep, renderLanguageStep];
+    const renderMovieGenreStep = () => (
+        <View style={styles.stepContent}>
+            <Text style={styles.stepEmoji}>🍿</Text>
+            <Text style={styles.stepTitle}>What kinds of films do you gravitate toward?</Text>
+            <Text style={styles.stepSubtitle}>Pick up to 5 — we use this when suggesting movies</Text>
+
+            <View style={styles.chipGrid}>
+                {MOVIE_GENRE_OPTIONS.map(({ label, emoji }) => {
+                    const selected = selectedMovieGenres.includes(label);
+                    return (
+                        <TouchableOpacity
+                            key={label}
+                            onPress={() => toggleMovieGenre(label)}
+                            activeOpacity={0.7}
+                        >
+                            <View style={[styles.chip, selected && styles.chipSelected]}>
+                                <Text style={styles.chipEmoji}>{emoji}</Text>
+                                <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
+                                    {label}
+                                </Text>
+                                {selected && (
+                                    <Icon name="check" size={14} color="#3B82F6" style={ICON_STYLE} />
+                                )}
+                            </View>
+                        </TouchableOpacity>
+                    );
+                })}
+            </View>
+
+            <Text style={styles.counter}>
+                {selectedMovieGenres.length}/5 selected
+            </Text>
+        </View>
+    );
+
+    const renderMovieNightStep = () => (
+        <View style={styles.stepContent}>
+            <Text style={styles.stepEmoji}>🎬</Text>
+            <Text style={styles.stepTitle}>Movie night mood</Text>
+            <Text style={styles.stepSubtitle}>When you want a film pick, what should we lean toward?</Text>
+
+            <View style={styles.radioContainer}>
+                {MOVIE_NIGHT_OPTIONS.map(({ label, value }) => {
+                    const selected = movieNightVibe === value;
+                    return (
+                        <TouchableOpacity
+                            key={value}
+                            onPress={() => setMovieNightVibe(value)}
+                            activeOpacity={0.7}
+                        >
+                            <GlassCard style={selected ? { ...styles.radioCard, ...styles.radioCardSelected } : styles.radioCard}>
+                                <View style={styles.radioRow}>
+                                    <View style={[styles.radioCircle, selected && styles.radioCircleSelected]}>
+                                        {selected && <View style={styles.radioInner} />}
+                                    </View>
+                                    <Text style={[styles.radioText, selected && styles.radioTextSelected]}>
+                                        {label}
+                                    </Text>
+                                </View>
+                            </GlassCard>
+                        </TouchableOpacity>
+                    );
+                })}
+            </View>
+        </View>
+    );
+
+    const STEPS = [
+        renderGenreStep,
+        renderArtistStep,
+        renderEnergyStep,
+        renderLanguageStep,
+        renderMovieGenreStep,
+        renderMovieNightStep,
+    ];
     const isLastStep = step === TOTAL_STEPS - 1;
 
     return (
@@ -374,7 +520,7 @@ export const OnboardingScreen: React.FC = () => {
                     style={styles.headerPill}
                 >
                     <Text style={styles.headerPillText}>
-                        {isUpdate ? '✏️ Update Preferences' : '🎵 Personalize Your Vibe'}
+                        {isUpdate ? '✏️ Update Preferences' : '🎬 Music & movie tastes'}
                     </Text>
                 </LinearGradient>
 

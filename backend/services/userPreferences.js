@@ -2,7 +2,7 @@
  * User Preferences Service
  *
  * JSON-file-based persistence for user personalization preferences.
- * Keyed by Spotify user ID, stores genre/artist/energy/language/decade prefs.
+ * Keyed by Spotify user ID, stores genre/artist/energy/language/decade + movie prefs.
  */
 
 const fs = require('fs');
@@ -62,7 +62,7 @@ const VALID_DECADES = ['1960s', '1970s', '1980s', '1990s', '2000s', '2010s', '20
 /**
  * Validate and save preferences for a Spotify user.
  * @param {string} userId
- * @param {object} prefs - { genres, favoriteArtists, energyPreference, languagePreference, decadePreference }
+ * @param {object} prefs - { genres, favoriteArtists, energyPreference, languagePreference, decadePreference, movieGenres, movieNightVibe }
  * @returns {{ success: boolean, errors?: string[] }}
  */
 function savePreferences(userId, prefs) {
@@ -97,6 +97,20 @@ function savePreferences(userId, prefs) {
     }
   }
 
+  if (prefs.movieGenres !== undefined) {
+    if (!Array.isArray(prefs.movieGenres)) {
+      errors.push('movieGenres must be an array');
+    } else if (prefs.movieGenres.length > 10) {
+      errors.push('movieGenres cannot exceed 10 entries');
+    } else if (!prefs.movieGenres.every((g) => typeof g === 'string')) {
+      errors.push('movieGenres entries must be strings');
+    }
+  }
+
+  if (prefs.movieNightVibe !== undefined && typeof prefs.movieNightVibe !== 'string') {
+    errors.push('movieNightVibe must be a string');
+  }
+
   if (errors.length > 0) {
     return { success: false, errors };
   }
@@ -112,6 +126,8 @@ function savePreferences(userId, prefs) {
     energyPreference: prefs.energyPreference ?? existing.energyPreference ?? {},
     languagePreference: prefs.languagePreference ?? existing.languagePreference ?? 'no preference',
     decadePreference: prefs.decadePreference ?? existing.decadePreference ?? 'no preference',
+    movieGenres: prefs.movieGenres ?? existing.movieGenres ?? [],
+    movieNightVibe: prefs.movieNightVibe ?? existing.movieNightVibe ?? 'no preference',
     onboardingComplete: true,
     updatedAt: new Date().toISOString(),
   };

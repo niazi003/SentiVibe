@@ -20,6 +20,7 @@
  *   POST /api/feedback                    — Track feedback (like/skip)
  *   POST /api/detect/text                 — Emotion from text
  *   POST /api/detect/face                 — Emotion from camera image
+ *   POST /api/detect/voice                — Emotion from short audio (multipart)
  *   POST /api/auth/swap                   — Spotify OAuth token swap
  *   POST /api/auth/refresh                — Spotify OAuth token refresh
  *   POST /api/cache/clear                 — Dev: clear recommendation cache
@@ -325,13 +326,23 @@ app.post('/api/user/preferences', async (req, res) => {
       return res.status(401).json({ error: 'Valid Spotify Bearer token required' });
     }
 
-    const { genres, favoriteArtists, energyPreference, languagePreference, decadePreference } = req.body;
+    const {
+      genres,
+      favoriteArtists,
+      energyPreference,
+      languagePreference,
+      decadePreference,
+      movieGenres,
+      movieNightVibe,
+    } = req.body;
     const result = savePreferences(userId, {
       genres,
       favoriteArtists,
       energyPreference,
       languagePreference,
       decadePreference,
+      movieGenres,
+      movieNightVibe,
     });
 
     if (!result.success) {

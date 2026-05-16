@@ -18,7 +18,7 @@ export const SignupScreen: React.FC = () => {
 
     const handleSignup = () => {
         updateUser({ name: name || 'Uzair' });
-        navigation.navigate('Questionnaire');
+        navigation.navigate('Chatbot');
     };
 
     return (

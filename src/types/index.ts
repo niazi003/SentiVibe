@@ -6,7 +6,6 @@ export type RootStackParamList = {
     Login: undefined;
     Signup: undefined;
     Onboarding: { isUpdate?: boolean } | undefined;
-    Questionnaire: undefined;
     Chatbot: { detectedEmotion?: string; reset?: boolean; backToChoices?: boolean } | undefined;
     Detection: { mode: 'camera' | 'voice' | 'text' };
     Results: { emotion: string; initialTab: 'Music' | 'Video' | 'Movie' };

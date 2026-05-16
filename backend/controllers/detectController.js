@@ -52,4 +52,31 @@ async function handleDetectFace(req, res) {
   }
 }
 
-module.exports = { handleDetectText, handleDetectFace };
+/**
+ * POST /api/detect/voice
+ * Multipart field name: audio
+ */
+async function handleDetectVoice(req, res) {
+  const file = req.file;
+
+  if (!file || !file.buffer?.length) {
+    return res.status(400).json({ error: 'audio file is required (multipart field: audio).' });
+  }
+
+  try {
+    const result = await aiClient.detectVoiceEmotion(
+      file.buffer,
+      file.originalname,
+      file.mimetype
+    );
+    return res.json(result);
+  } catch (err) {
+    console.error('[detectController] Voice detection error:', err.message);
+    return res.status(502).json({
+      error: 'Emotion detection service unavailable',
+      message: err.message,
+    });
+  }
+}
+
+module.exports = { handleDetectText, handleDetectFace, handleDetectVoice };

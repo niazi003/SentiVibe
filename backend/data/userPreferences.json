@@ -1,24 +1,30 @@
 {
   "dya0byb9dctyv728ij7nmsvvp": {
     "genres": [
-      "pop",
-      "k-pop",
       "punjabi/desi",
       "urdu/hindi"
     ],
     "favoriteArtists": [
       "Hassan Raheem",
-      "Temper City",
+      "Atif Aslam",
       "Ali Azmat"
     ],
     "energyPreference": {
       "angry": "high",
       "sad": "low",
-      "calm": "medium"
+      "calm": "low"
     },
-    "languagePreference": "mix",
+    "languagePreference": "urdu+hindi",
     "decadePreference": "no preference",
     "onboardingComplete": true,
-    "updatedAt": "2026-05-11T16:38:17.110Z"
+    "updatedAt": "2026-05-14T16:26:36.258Z",
+    "movieGenres": [
+      "comedy",
+      "romance",
+      "action & adventure",
+      "sci-fi",
+      "documentary"
+    ],
+    "movieNightVibe": "no preference"
   }
 }

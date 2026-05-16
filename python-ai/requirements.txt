@@ -9,6 +9,7 @@ numpy>=1.26.0
 # Emotion Detection (emotion_server.py)
 transformers>=4.30.0
 torch>=2.0.0
+torchaudio>=2.0.0
 deepface>=0.0.79
 opencv-python>=4.8.0
 soundfile>=0.12.0
