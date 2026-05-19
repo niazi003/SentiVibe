@@ -2,11 +2,12 @@
   "dya0byb9dctyv728ij7nmsvvp": {
     "genres": [
       "punjabi/desi",
-      "urdu/hindi"
+      "urdu/hindi",
+      "latin"
     ],
     "favoriteArtists": [
-      "Hassan Raheem",
-      "Atif Aslam",
+      "Camila Cabello",
+      "Bad Bunny",
       "Ali Azmat"
     ],
     "energyPreference": {
@@ -14,10 +15,10 @@
       "sad": "low",
       "calm": "low"
     },
-    "languagePreference": "urdu+hindi",
+    "languagePreference": "no preference",
     "decadePreference": "no preference",
     "onboardingComplete": true,
-    "updatedAt": "2026-05-14T16:26:36.258Z",
+    "updatedAt": "2026-05-19T15:14:25.917Z",
     "movieGenres": [
       "comedy",
       "romance",

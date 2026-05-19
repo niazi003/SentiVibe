@@ -14,8 +14,8 @@ import { getAccessToken } from './spotify';
 // SINGLE GATEWAY URL — change this ONE value for ngrok
 // ─────────────────────────────────────────────────────────────
 const BASE_URL = __DEV__
-  ? 'http://192.168.18.33:3001/api'
-  : 'http://192.168.18.33:3001/api'; // Replace with prod / ngrok URL
+  ? 'https://frugality-endocrine-probably.ngrok-free.dev/api'  //http://192.168.18.33:3001/api
+  : 'https://frugality-endocrine-probably.ngrok-free.dev/api'; // Replace with prod / ngrok URL
 
 const CACHE_KEY_PREFIX = 'sentivibe_recommendations_';
 const REQUEST_TIMEOUT = 15000; // 15 seconds
@@ -62,7 +62,7 @@ export async function fetchRecommendations(
     await AsyncStorage.setItem(
       `${CACHE_KEY_PREFIX}${mood.toLowerCase()}_${cacheTier}`,
       JSON.stringify(data.tracks)
-    ).catch(() => {}); // Don't fail if storage write fails
+    ).catch(() => { }); // Don't fail if storage write fails
 
     return {
       data: data.tracks,
@@ -95,7 +95,7 @@ export async function fetchRecommendations(
           loading: false,
         };
       }
-    } catch {} // Ignore cache read errors
+    } catch { } // Ignore cache read errors
 
     return {
       data: null,
