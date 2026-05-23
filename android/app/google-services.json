@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "216835956213",
+    "project_id": "sentivibe-51d01",
+    "storage_bucket": "sentivibe-51d01.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:216835956213:android:0ee97bfaf95b76d4d754bc",
+        "android_client_info": {
+          "package_name": "com.sentivibe"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBGiVWJJN36CewO-g2Rg06pp_vphU2mZAk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

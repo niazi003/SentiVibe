@@ -5,12 +5,24 @@ import { useNavigation } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/Feather';
 import { GlassCard, Button } from '../components';
 import { NavigationProp } from '../types';
-import { AppContext } from '../context/AppContext';
+import { AuthContext } from '../context/AuthContext';
 import { ICON_STYLE } from '../constants';
 
 export const ProfileScreen: React.FC = () => {
     const navigation = useNavigation<NavigationProp>();
-    const { userData } = useContext(AppContext);
+    const { user, logOut } = useContext(AuthContext);
+
+    const handleLogout = async () => {
+        try {
+            await logOut();
+            navigation.reset({
+                index: 0,
+                routes: [{ name: 'Welcome' }],
+            });
+        } catch (error) {
+            console.warn('Logout failed:', error);
+        }
+    };
 
     return (
         <SafeAreaView style={styles.container} edges={['top']}>
@@ -35,11 +47,11 @@ export const ProfileScreen: React.FC = () => {
                 <View style={styles.avatarSection}>
                     <View style={styles.avatar}>
                         <Text style={styles.avatarText}>
-                            {userData.name ? userData.name[0].toUpperCase() : 'U'}
+                            {user?.name ? user.name[0].toUpperCase() : 'U'}
                         </Text>
                     </View>
-                    <Text style={styles.userName}>{userData.name || 'Uzair'}</Text>
-                    <Text style={styles.userEmail}>user@example.com</Text>
+                    <Text style={styles.userName}>{user?.name || 'User'}</Text>
+                    <Text style={styles.userEmail}>{user?.email || 'No email'}</Text>
                 </View>
 
                 {/* Spotify Card */}
@@ -69,6 +81,12 @@ export const ProfileScreen: React.FC = () => {
                         onPress={() => navigation.navigate('Settings')}
                     >
                         <Icon name="settings" size={18} color="#60A5FA" /> App Settings
+                    </Button>
+                    <Button
+                        variant="outline"
+                        onPress={handleLogout}
+                    >
+                        <Icon name="log-out" size={18} color="#F87171" /> Log Out
                     </Button>
                 </View>
             </ScrollView>

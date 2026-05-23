@@ -19,6 +19,7 @@ import { NavigationProp, RootStackParamList, ChatMessage } from '../types';
 import { AppContext } from '../context/AppContext';
 import { ICON_STYLE } from '../constants';
 import { sendChatMessage, detectTextEmotion } from '../services/api';
+import { saveMoodToFirestore } from '../services/firestorePreferences';
 
 type ChatbotRouteProp = RouteProp<RootStackParamList, 'Chatbot'>;
 
@@ -58,6 +59,7 @@ export const ChatbotScreen: React.FC = () => {
         if (params?.detectedEmotion) {
             if (detectedMood !== params.detectedEmotion || params.backToChoices) {
                 setDetectedMood(params.detectedEmotion);
+                saveMoodToFirestore(params.detectedEmotion, 'camera');
                 const emojiMap: Record<string, string> = {
                     Happy: '😊', Sad: '😢', Angry: '😠', Calm: '😌', Anxious: '😰',
                     Excited: '🤩', Lonely: '😔', Focused: '🎯', Romantic: '💕', Neutral: '😐'
@@ -120,6 +122,7 @@ export const ChatbotScreen: React.FC = () => {
             if (aiResponse.detectedEmotion && aiResponse.detectedEmotion !== 'neutral') {
                 const emotion = aiResponse.detectedEmotion.charAt(0).toUpperCase() + aiResponse.detectedEmotion.slice(1);
                 navigation.setParams({ detectedEmotion: emotion });
+                saveMoodToFirestore(emotion, 'chat');
             }
         } catch (error: any) {
             console.warn('[Chat] AI error, falling back to text detection:', error.message);
@@ -138,6 +141,7 @@ export const ChatbotScreen: React.FC = () => {
                 });
                 const emotion = detection.emotion.charAt(0).toUpperCase() + detection.emotion.slice(1);
                 navigation.setParams({ detectedEmotion: emotion });
+                saveMoodToFirestore(emotion, 'text');
             } catch {
                 // Final fallback: local heuristic
                 setChatHistory(prev => {

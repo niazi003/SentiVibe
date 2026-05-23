@@ -1,24 +1,54 @@
 import React, { useState, useContext } from 'react';
-import { View, Text, TextInput, StyleSheet, TouchableOpacity, ScrollView, Platform } from 'react-native';
+import { View, Text, TextInput, StyleSheet, TouchableOpacity, ActivityIndicator, Platform } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/Feather';
 import { GlassCard, Button } from '../components';
 import { NavigationProp } from '../types';
-import { AppContext } from '../context/AppContext';
 import { ICON_STYLE } from '../constants';
+import { AuthContext } from '../context/AuthContext';
 
 export const SignupScreen: React.FC = () => {
     const navigation = useNavigation<NavigationProp>();
-    const { updateUser } = useContext(AppContext);
+    const { signUp } = useContext(AuthContext);
     const [name, setName] = useState('');
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState('');
 
-    const handleSignup = () => {
-        updateUser({ name: name || 'Uzair' });
-        navigation.navigate('Chatbot');
+    const handleSignup = async () => {
+        // Basic validation
+        if (!name.trim()) {
+            setError('Please enter your name.');
+            return;
+        }
+        if (!email.trim()) {
+            setError('Please enter your email.');
+            return;
+        }
+        if (!password.trim()) {
+            setError('Please enter a password.');
+            return;
+        }
+
+        setError('');
+        setLoading(true);
+
+        try {
+            await signUp(name.trim(), email.trim().toLowerCase(), password);
+            // Auth state listener in AuthContext will update user
+            // Navigate to onboarding for new users
+            navigation.reset({
+                index: 0,
+                routes: [{ name: 'Onboarding' }],
+            });
+        } catch (err: any) {
+            setError(err.message);
+        } finally {
+            setLoading(false);
+        }
     };
 
     return (
@@ -43,6 +73,13 @@ export const SignupScreen: React.FC = () => {
                 </View>
 
                 <GlassCard style={styles.form}>
+                    {error ? (
+                        <View style={styles.errorBox}>
+                            <Icon name="alert-circle" size={16} color="#F87171" style={ICON_STYLE} />
+                            <Text style={styles.errorText}>{error}</Text>
+                        </View>
+                    ) : null}
+
                     <View style={styles.inputGroup}>
                         <Text style={styles.label}>Full Name</Text>
                         <TextInput
@@ -51,6 +88,7 @@ export const SignupScreen: React.FC = () => {
                             onChangeText={setName}
                             placeholder="Enter your full name"
                             placeholderTextColor="#475569"
+                            editable={!loading}
                         />
                     </View>
 
@@ -64,6 +102,7 @@ export const SignupScreen: React.FC = () => {
                             placeholderTextColor="#475569"
                             keyboardType="email-address"
                             autoCapitalize="none"
+                            editable={!loading}
                         />
                     </View>
 
@@ -73,17 +112,23 @@ export const SignupScreen: React.FC = () => {
                             style={styles.input}
                             value={password}
                             onChangeText={setPassword}
-                            placeholder="Create a password"
+                            placeholder="Create a password (min 6 chars)"
                             placeholderTextColor="#475569"
                             secureTextEntry
+                            editable={!loading}
                         />
                     </View>
 
                     <Button
                         onPress={handleSignup}
                         style={styles.submitButton}
+                        disabled={loading}
                     >
-                        Sign Up
+                        {loading ? (
+                            <ActivityIndicator color="#FFFFFF" size="small" />
+                        ) : (
+                            'Sign Up'
+                        )}
                     </Button>
                 </GlassCard>
 
@@ -135,6 +180,21 @@ const styles = StyleSheet.create({
         padding: 24,
         borderRadius: 24,
         gap: 20,
+    },
+    errorBox: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        backgroundColor: 'rgba(248, 113, 113, 0.1)',
+        borderWidth: 1,
+        borderColor: 'rgba(248, 113, 113, 0.3)',
+        borderRadius: 12,
+        padding: 12,
+    },
+    errorText: {
+        flex: 1,
+        fontSize: 13,
+        color: '#F87171',
     },
     inputGroup: {
         gap: 8,

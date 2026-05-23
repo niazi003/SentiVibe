@@ -95,6 +95,7 @@ export interface ChatMessage {
 }
 
 export interface UserData {
+    uid?: string;
     name?: string;
     email?: string;
 }

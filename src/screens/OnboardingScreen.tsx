@@ -23,7 +23,7 @@ import LinearGradient from 'react-native-linear-gradient';
 import Icon from 'react-native-vector-icons/Feather';
 import { GlassCard } from '../components';
 import { NavigationProp, RootStackParamList } from '../types';
-import { getUserPreferences, saveUserPreferences } from '../services/api';
+import { getPreferencesFromFirestore as getUserPreferences, savePreferencesToFirestore as saveUserPreferences } from '../services/firestorePreferences';
 import { ICON_STYLE } from '../constants';
 
 const TOTAL_STEPS = 6;

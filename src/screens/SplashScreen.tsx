@@ -1,12 +1,15 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useContext } from 'react';
 import { View, Text, StyleSheet, Animated, Easing } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import LinearGradient from 'react-native-linear-gradient';
 import { NavigationProp } from '../types';
+import { AuthContext } from '../context/AuthContext';
+import { getPreferencesFromFirestore as getUserPreferences } from '../services/firestorePreferences';
 
 export const SplashScreen: React.FC = () => {
     const navigation = useNavigation<NavigationProp>();
+    const { user, loading } = useContext(AuthContext);
 
     // Animation values
     const logoScale = useRef(new Animated.Value(0.5)).current;
@@ -44,17 +47,33 @@ export const SplashScreen: React.FC = () => {
                 useNativeDriver: true,
             }).start();
         }, 400);
+    }, []);
 
-        // Navigate to Welcome screen after delay
-        const timer = setTimeout(() => {
-            navigation.reset({
-                index: 0,
-                routes: [{ name: 'Welcome' }],
-            });
-        }, 2500);
+    // Navigate after auth state is resolved
+    useEffect(() => {
+        if (loading) return; // Wait for Firebase to resolve auth state
+
+        const timer = setTimeout(async () => {
+            if (user) {
+                // User is logged in — check onboarding
+                try {
+                    const prefs = await getUserPreferences();
+                    if (prefs.onboardingComplete) {
+                        navigation.reset({ index: 0, routes: [{ name: 'Chatbot' }] });
+                    } else {
+                        navigation.reset({ index: 0, routes: [{ name: 'Onboarding' }] });
+                    }
+                } catch {
+                    navigation.reset({ index: 0, routes: [{ name: 'Chatbot' }] });
+                }
+            } else {
+                // Not logged in — go to Welcome
+                navigation.reset({ index: 0, routes: [{ name: 'Welcome' }] });
+            }
+        }, 2000);
 
         return () => clearTimeout(timer);
-    }, [navigation]);
+    }, [loading, user, navigation]);
 
     return (
         <SafeAreaView style={styles.container} edges={['top']}>

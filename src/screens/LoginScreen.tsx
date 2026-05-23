@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { View, Text, TextInput, StyleSheet, TouchableOpacity, Platform } from 'react-native';
+import React, { useState, useContext } from 'react';
+import { View, Text, TextInput, StyleSheet, TouchableOpacity, ActivityIndicator, Platform } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
@@ -7,25 +7,59 @@ import Icon from 'react-native-vector-icons/Feather';
 import { GlassCard, Button } from '../components';
 import { NavigationProp } from '../types';
 import { ICON_STYLE } from '../constants';
-import { getUserPreferences } from '../services/api';
+import { AuthContext } from '../context/AuthContext';
+import { getPreferencesFromFirestore as getUserPreferences } from '../services/firestorePreferences';
 
 export const LoginScreen: React.FC = () => {
     const navigation = useNavigation<NavigationProp>();
+    const { logIn } = useContext(AuthContext);
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState('');
 
     const handleLogin = async () => {
-        // Check if onboarding is complete
+        // Basic validation
+        if (!email.trim()) {
+            setError('Please enter your email.');
+            return;
+        }
+        if (!password.trim()) {
+            setError('Please enter your password.');
+            return;
+        }
+
+        setError('');
+        setLoading(true);
+
         try {
-            const prefs = await getUserPreferences();
-            if (prefs.onboardingComplete) {
-                navigation.navigate('Chatbot');
-            } else {
-                navigation.navigate('Onboarding');
+            await logIn(email.trim().toLowerCase(), password);
+
+            // Check if onboarding is complete
+            try {
+                const prefs = await getUserPreferences();
+                if (prefs.onboardingComplete) {
+                    navigation.reset({
+                        index: 0,
+                        routes: [{ name: 'Chatbot' }],
+                    });
+                } else {
+                    navigation.reset({
+                        index: 0,
+                        routes: [{ name: 'Onboarding' }],
+                    });
+                }
+            } catch {
+                // If we can't check, just go to chatbot
+                navigation.reset({
+                    index: 0,
+                    routes: [{ name: 'Chatbot' }],
+                });
             }
-        } catch {
-            // If we can't check, just go to chatbot
-            navigation.navigate('Chatbot');
+        } catch (err: any) {
+            setError(err.message);
+        } finally {
+            setLoading(false);
         }
     };
 
@@ -51,6 +85,13 @@ export const LoginScreen: React.FC = () => {
                 </View>
 
                 <GlassCard style={styles.form}>
+                    {error ? (
+                        <View style={styles.errorBox}>
+                            <Icon name="alert-circle" size={16} color="#F87171" style={ICON_STYLE} />
+                            <Text style={styles.errorText}>{error}</Text>
+                        </View>
+                    ) : null}
+
                     <View style={styles.inputGroup}>
                         <Text style={styles.label}>Email</Text>
                         <TextInput
@@ -61,6 +102,7 @@ export const LoginScreen: React.FC = () => {
                             placeholderTextColor="#475569"
                             keyboardType="email-address"
                             autoCapitalize="none"
+                            editable={!loading}
                         />
                     </View>
 
@@ -73,14 +115,20 @@ export const LoginScreen: React.FC = () => {
                             placeholder="Enter your password"
                             placeholderTextColor="#475569"
                             secureTextEntry
+                            editable={!loading}
                         />
                     </View>
 
                     <Button
                         onPress={handleLogin}
                         style={styles.submitButton}
+                        disabled={loading}
                     >
-                        Log In
+                        {loading ? (
+                            <ActivityIndicator color="#FFFFFF" size="small" />
+                        ) : (
+                            'Log In'
+                        )}
                     </Button>
                 </GlassCard>
 
@@ -129,6 +177,21 @@ const styles = StyleSheet.create({
         padding: 24,
         borderRadius: 24,
         gap: 24,
+    },
+    errorBox: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        backgroundColor: 'rgba(248, 113, 113, 0.1)',
+        borderWidth: 1,
+        borderColor: 'rgba(248, 113, 113, 0.3)',
+        borderRadius: 12,
+        padding: 12,
+    },
+    errorText: {
+        flex: 1,
+        fontSize: 13,
+        color: '#F87171',
     },
     inputGroup: {
         gap: 8,
