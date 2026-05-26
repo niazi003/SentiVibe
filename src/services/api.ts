@@ -7,7 +7,7 @@
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { TrackRecommendation, ApiResponse } from '../types';
+import { TrackRecommendation, MovieRecommendation, ApiResponse } from '../types';
 import { getAccessToken } from './spotify';
 
 // ─────────────────────────────────────────────────────────────
@@ -197,6 +197,11 @@ export interface FaceDetectionResponse {
 
 export interface VoiceDetectionResponse {
   emotion: string;
+  /** What the user said (when STT succeeded). */
+  transcript?: string;
+  /** speech_phrase | speech_text | tone | heuristic */
+  source?: string;
+  confidence?: number;
 }
 
 /**
@@ -234,7 +239,7 @@ export async function detectTextEmotion(text: string): Promise<TextDetectionResp
 
 /**
  * Detect emotion from a face image (base64 encoded).
- * Routes through Node.js → Python Emotion Service (DeepFace).
+ * Routes through Node.js → Python Emotion Service (ViT face model).
  */
 export async function detectFaceEmotion(imageBase64: string): Promise<FaceDetectionResponse> {
   const controller = new AbortController();
@@ -269,7 +274,7 @@ const VOICE_DETECT_TIMEOUT_MS = 90_000;
 
 /**
  * Detect emotion from a short recorded audio clip (multipart upload).
- * Routes through Node.js → Python Emotion Service (Wav2Vec2 or heuristic fallback).
+ * Routes through Node.js → Python Emotion Service (Whisper STT → text emotion; tone is fallback).
  */
 export async function detectVoiceEmotion(
   fileUri: string,
@@ -331,6 +336,86 @@ export async function detectVoiceEmotion(
       throw new Error('Voice detection timed out.');
     }
     throw error;
+  }
+}
+
+const MOVIE_CACHE_PREFIX = 'sentivibe_movie_recommendations_';
+
+/**
+ * Fetch mood-based movie recommendations (TF-IDF dataset + YouTube trailers).
+ */
+export async function fetchMovieRecommendations(
+  mood: string,
+  limit: number = 3,
+  userText?: string
+): Promise<ApiResponse<MovieRecommendation[]>> {
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
+
+    const params = new URLSearchParams({
+      mood,
+      limit: String(limit),
+    });
+    if (userText?.trim()) {
+      params.set('text', userText.trim());
+    }
+
+    const response = await fetch(
+      `${BASE_URL}/recommendations/movies?${params.toString()}`,
+      { signal: controller.signal }
+    );
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || errorData.message || `HTTP ${response.status}`);
+    }
+
+    const data = await response.json();
+    const movies: MovieRecommendation[] = data.movies ?? [];
+
+    await AsyncStorage.setItem(
+      `${MOVIE_CACHE_PREFIX}${mood.toLowerCase()}`,
+      JSON.stringify(movies)
+    ).catch(() => {});
+
+    return {
+      data: movies,
+      cached: !!data.cached,
+      error: null,
+      loading: false,
+    };
+  } catch (error: unknown) {
+    const err = error as { message?: string; name?: string };
+    console.warn('[API] Movie fetch failed, trying cache:', err.message);
+
+    try {
+      const cachedData = await AsyncStorage.getItem(
+        `${MOVIE_CACHE_PREFIX}${mood.toLowerCase()}`
+      );
+      if (cachedData) {
+        return {
+          data: JSON.parse(cachedData),
+          cached: true,
+          error: 'Using cached movies (offline)',
+          loading: false,
+        };
+      }
+    } catch {
+      /* ignore */
+    }
+
+    return {
+      data: null,
+      cached: false,
+      error:
+        err?.name === 'AbortError'
+          ? 'Request timed out. Check your connection.'
+          : err.message || 'Failed to fetch movie recommendations',
+      loading: false,
+    };
   }
 }
 

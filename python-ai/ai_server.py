@@ -36,7 +36,12 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 
 from rag import add_memory, retrieve_context
-from prompts import build_prompt, SUPPORTED_EMOTIONS
+from prompts import (
+    build_prompt,
+    SUPPORTED_EMOTIONS,
+    is_off_topic_user_message,
+    off_topic_response,
+)
 
 # ── Logging ───────────────────────────────────────────────────
 logging.basicConfig(
@@ -141,8 +146,8 @@ def call_ollama(prompt: str) -> str:
         "stream": False,
         "options": {
             # Lower temperature improves JSON adherence on small models (e.g. llama3.2:1b).
-            "temperature": 0.45,
-            "num_predict": 220,
+            "temperature": 0.55,
+            "num_predict": 280,
         },
     }
     try:
@@ -301,8 +306,34 @@ def extract_json(raw: str) -> dict:
 
     log.warning("Could not parse JSON from LLM output. Using salvage / short fallback.")
     salvaged = _salvage_reply_field(cleaned)
-    fallback_reply = salvaged or (cleaned[:280].strip() if cleaned else "I'm here with you. What's on your mind?")
+    fallback_reply = salvaged or (
+        cleaned[:280].strip()
+        if cleaned
+        else "I'm listening — tell me how you're feeling, and we can find something that fits your mood."
+    )
     return {"reply": fallback_reply, "detectedEmotion": "neutral"}
+
+
+def _sanitize_reply(reply: str) -> str:
+    """Trim assistant drift (too long, meta-AI phrasing)."""
+    text = reply.strip()
+    lower = text.lower()
+    banned_starts = (
+        "as an ai",
+        "as a language model",
+        "i'm an ai",
+        "i am an ai",
+        "openai",
+        "chatgpt",
+    )
+    if any(lower.startswith(b) or b in lower[:80] for b in banned_starts):
+        return (
+            "I'm Vibe — here for your feelings and for music or films that match your mood. "
+            "What are you carrying emotionally today?"
+        )
+    if len(text) > 420:
+        text = text[:417].rsplit(" ", 1)[0] + "…"
+    return text
 
 
 # ── Routes ────────────────────────────────────────────────────
@@ -330,6 +361,15 @@ def chat():
 
     log.info(f"[{user_id}] ← {message[:80]}")
 
+    # 0. Hard guard — off-topic requests get a mood/media redirect (no LLM hallucination)
+    if is_off_topic_user_message(message):
+        result = off_topic_response()
+        ml_emotion = detect_emotion_vibe_from_user_text(message)
+        if ml_emotion is not None:
+            result["detectedEmotion"] = ml_emotion
+        log.info(f"[{user_id}] → off-topic redirect | {result['reply'][:60]}")
+        return jsonify(result)
+
     # 1. Retrieve relevant memories from FAISS
     rag_context = retrieve_context(user_id, message, k=3)
     if rag_context:
@@ -347,6 +387,7 @@ def chat():
 
     # 4. Parse LLM response
     result = extract_json(raw_output)
+    result["reply"] = _sanitize_reply(result["reply"])
 
     # Text emotion from DistilRoBERTa (port 5001) is more reliable than small-LLM JSON.
     ml_emotion = detect_emotion_vibe_from_user_text(message)
