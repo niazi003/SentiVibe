@@ -134,7 +134,7 @@ export const ChatbotScreen: React.FC = () => {
                     const filtered = prev.filter(m => m.id !== typingMsg.id);
                     const fallbackReply: ChatMessage = {
                         id: Date.now() + 2,
-                        text: `I sense you're feeling ${detection.emotion}. Tell me more about what's going on?`,
+                        text: `I hear a lot of ${detection.emotion} in what you shared — I'm with you. Want to say a bit more, or should we find something to listen to or watch?`,
                         sender: 'bot'
                     };
                     return [...filtered, fallbackReply];
@@ -148,7 +148,7 @@ export const ChatbotScreen: React.FC = () => {
                     const filtered = prev.filter(m => m.id !== typingMsg.id);
                     const errorReply: ChatMessage = {
                         id: Date.now() + 2,
-                        text: "I'm having trouble connecting to my brain right now 🤖 But I'm still here — try the camera or voice option instead!",
+                        text: "I'm having trouble reaching my mood engine right now — I'm still here with you. Try the camera or mic, or tell me again how you're feeling.",
                         sender: 'bot'
                     };
                     return [...filtered, errorReply];
@@ -292,7 +292,7 @@ export const ChatbotScreen: React.FC = () => {
                             style={styles.input}
                             value={input}
                             onChangeText={setInput}
-                            placeholder="Message..."
+                            placeholder="How are you feeling?"
                             placeholderTextColor="#64748B"
                             onSubmitEditing={handleSend}
                         />

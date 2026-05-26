@@ -106,7 +106,7 @@ export const DetectionScreen: React.FC = () => {
     const runVoicePipeline = useCallback(
         async (localPath: string) => {
             setPhase('analyzing');
-            setStatus('Analyzing voice...');
+            setStatus('Listening to what you said...');
             setProgress(35);
             const uri = toFileUri(localPath);
             const { fileName, mimeType } = guessVoiceUploadMeta(localPath);

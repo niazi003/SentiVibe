@@ -130,4 +130,42 @@ async function detectVoiceEmotion(buffer, originalname, mimetype) {
   }
 }
 
-module.exports = { chat, detectTextEmotion, detectFaceEmotion, detectVoiceEmotion };
+/**
+ * Mood-based movie recommendations (Python TF-IDF engine).
+ * @param {string} mood - app mood label (e.g. Sad, Happy)
+ * @param {string} [userText] - optional chat context
+ * @param {number} [limit=3]
+ */
+async function recommendMovies(mood, userText = '', limit = 3) {
+  try {
+    const response = await axios.get(`${EMOTION_SERVICE_URL}/recommend-movies`, {
+      params: {
+        mood,
+        text: userText,
+        limit,
+      },
+      timeout: 30_000,
+    });
+    return response.data;
+  } catch (err) {
+    if (err.code === 'ECONNREFUSED') {
+      throw new Error(
+        'Emotion/movie service is not running. Start it with: python emotion_server.py'
+      );
+    }
+    const data = err.response?.data;
+    const msg =
+      data && typeof data === 'object'
+        ? data.error || data.message
+        : err.message;
+    throw new Error(msg || 'Movie recommendation request failed');
+  }
+}
+
+module.exports = {
+  chat,
+  detectTextEmotion,
+  detectFaceEmotion,
+  detectVoiceEmotion,
+  recommendMovies,
+};

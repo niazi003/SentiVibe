@@ -15,8 +15,16 @@ interface AppContextType {
 }
 
 const defaultChatHistory: ChatMessage[] = [
-    { id: 1, text: "Hello! I'm Sentivibe.", sender: 'bot' },
-    { id: 2, text: "How are you feeling today? You can type, speak, or show me!", sender: 'bot' }
+    {
+        id: 1,
+        text: "Hi — I'm Vibe. I'm here to listen to how you're feeling, not to chat about random topics.",
+        sender: 'bot',
+    },
+    {
+        id: 2,
+        text: "Share what's on your mind, use the mic, or show me your face — then we can pick music, videos, or a film that fits your mood.",
+        sender: 'bot',
+    },
 ];
 
 export const AppContext = createContext<AppContextType>({

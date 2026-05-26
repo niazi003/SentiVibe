@@ -1,7 +1,12 @@
 /**
- * Map raw labels from DeepFace / speech models to in-app mood chips (ChatbotScreen emojiMap).
+ * Map raw labels from ViT / Wav2Vec2 / DistilRoBERTa models to in-app mood chips (ChatbotScreen emojiMap).
  */
 const DETECTOR_TO_APP: Record<string, string> = {
+    // DistilRoBERTa text labels (j-hartmann)
+    anger: 'Angry',
+    joy: 'Happy',
+    sadness: 'Sad',
+    // Face (ViT) + voice (Wav2Vec2) labels
     fear: 'Anxious',
     fearful: 'Anxious',
     anxiety: 'Anxious',
@@ -16,6 +21,9 @@ const DETECTOR_TO_APP: Record<string, string> = {
     neutral: 'Neutral',
     calm: 'Calm',
     excited: 'Excited',
+    // Spoken self-reports (phrase matcher + STT)
+    motivated: 'Excited',
+    motivation: 'Excited',
     lonely: 'Lonely',
     focused: 'Focused',
     romantic: 'Romantic',

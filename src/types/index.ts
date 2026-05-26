@@ -61,6 +61,21 @@ export interface TrackRecommendation {
     videoUrl: string | null;
 }
 
+/** Movie recommendation from /api/recommendations/movies */
+export interface MovieRecommendation {
+    id: number;
+    title: string;
+    artist: string;
+    duration: string;
+    cover: string;
+    description?: string;
+    rating?: number;
+    emotion?: string;
+    videoId?: string | null;
+    videoUrl?: string | null;
+    trailer?: string | null;
+}
+
 /**
  * ApiResponse — generic wrapper for API call results.
  * Carries loading/error state alongside the data.

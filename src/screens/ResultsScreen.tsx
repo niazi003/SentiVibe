@@ -27,7 +27,7 @@ import { NavigationProp, RootStackParamList, MediaItem } from '../types';
 import { FALLBACK_RECOMMENDATIONS, ICON_STYLE } from '../constants';
 import { AppContext } from '../context/AppContext';
 import { usePlayer } from '../context/PlayerContext';
-import { fetchRecommendations } from '../services/api';
+import { fetchRecommendations, fetchMovieRecommendations } from '../services/api';
 
 // Enable LayoutAnimation for Android
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -57,16 +57,39 @@ export const ResultsScreen: React.FC = () => {
      * Falls back to hardcoded data if API is unreachable.
      */
     const loadRecommendations = useCallback(async () => {
-        // Movies are always from hardcoded data (no Spotify integration for movies)
-        if (activeTab === 'Movie') {
-            const fallback = FALLBACK_RECOMMENDATIONS[emotion] || FALLBACK_RECOMMENDATIONS['Happy'];
-            setTracks(fallback.Movie);
-            setIsLoading(false);
-            return;
-        }
-
         setIsLoading(true);
         setError(null);
+
+        if (activeTab === 'Movie') {
+            try {
+                const response = await fetchMovieRecommendations(emotion, 3);
+                if (response.data && response.data.length > 0) {
+                    const mapped: MediaItem[] = response.data.map((movie) => ({
+                        id: movie.id,
+                        title: movie.title,
+                        artist: movie.artist,
+                        duration: movie.duration,
+                        cover: movie.cover,
+                        description: movie.description,
+                        trailer: movie.trailer || movie.videoUrl || undefined,
+                        videoUrl: movie.videoUrl || movie.trailer || undefined,
+                        videoId: movie.videoId,
+                        type: 'Movie',
+                    }));
+                    setTracks(mapped);
+                    setIsOffline(!!response.error);
+                    if (response.error) setError(response.error);
+                } else {
+                    useFallbackData();
+                }
+            } catch (err) {
+                console.error('[Results] Movie fetch failed:', err);
+                useFallbackData();
+            } finally {
+                setIsLoading(false);
+            }
+            return;
+        }
 
         try {
             const response = await fetchRecommendations(emotion, 10);
@@ -108,7 +131,12 @@ export const ResultsScreen: React.FC = () => {
 
     const useFallbackData = () => {
         const fallback = FALLBACK_RECOMMENDATIONS[emotion] || FALLBACK_RECOMMENDATIONS['Happy'];
-        const items = activeTab === 'Music' ? fallback.Music : fallback.Video;
+        const items =
+            activeTab === 'Movie'
+                ? fallback.Movie
+                : activeTab === 'Music'
+                  ? fallback.Music
+                  : fallback.Video;
         setTracks(items as MediaItem[]);
         setIsOffline(true);
         setError('Using offline mode');

@@ -125,4 +125,66 @@ async function findVideosForTracks(tracks) {
   return results;
 }
 
-module.exports = { searchVideo, findVideosForTracks };
+/**
+ * Search YouTube for an official movie trailer.
+ * @param {string} movieTitle
+ * @returns {{ videoId, youtubeTitle, thumbnail } | null}
+ */
+async function searchTrailer(movieTitle) {
+  const apiKey = process.env.YOUTUBE_API_KEY;
+
+  if (!apiKey || apiKey === 'YOUR_YOUTUBE_API_KEY_HERE') {
+    console.warn('[YouTube] No API key configured, skipping trailer for:', movieTitle);
+    return null;
+  }
+
+  try {
+    const query = `${movieTitle} official trailer`;
+
+    const response = await axios.get('https://www.googleapis.com/youtube/v3/search', {
+      params: {
+        part: 'snippet',
+        q: query,
+        type: 'video',
+        maxResults: 5,
+        key: apiKey,
+        videoEmbeddable: 'true',
+      },
+    });
+
+    const items = response.data.items || [];
+    if (items.length === 0) {
+      return null;
+    }
+
+    const trailerHints = ['trailer', 'teaser', 'preview'];
+    const scored = items.map((item) => {
+      const title = (item.snippet.title || '').toLowerCase();
+      let score = 0;
+      if (trailerHints.some((h) => title.includes(h))) score += 8;
+      if (title.includes('official')) score += 4;
+      if (title.includes(movieTitle.toLowerCase().split(' ')[0])) score += 2;
+      for (const keyword of EXCLUDE_KEYWORDS) {
+        if (title.includes(keyword)) score -= 10;
+      }
+      return { item, score };
+    });
+
+    scored.sort((a, b) => b.score - a.score);
+    const best = scored[0].item;
+
+    return {
+      videoId: best.id.videoId,
+      youtubeTitle: best.snippet.title,
+      thumbnail:
+        best.snippet.thumbnails.high?.url ||
+        best.snippet.thumbnails.medium?.url ||
+        best.snippet.thumbnails.default?.url,
+    };
+  } catch (error) {
+    console.error('[YouTube] Trailer search error for', movieTitle, ':', error.message);
+    return null;
+  }
+}
+
+module.exports = { searchVideo, findVideosForTracks, searchTrailer };

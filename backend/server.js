@@ -32,7 +32,8 @@ const cors = require('cors');
 const NodeCache = require('node-cache');
 const crypto = require('crypto');
 const { getRecommendationsByMood, validateSpotifyUserToken } = require('./services/spotify');
-const { findVideosForTracks, searchVideo } = require('./services/youtube');
+const { findVideosForTracks, searchVideo, searchTrailer } = require('./services/youtube');
+const { recommendMovies } = require('./ai_client');
 const { swapToken, refreshToken } = require('./services/auth');
 const { getPreferences, savePreferences } = require('./services/userPreferences');
 const SpotifyWebApi = require('spotify-web-api-node');
@@ -213,6 +214,94 @@ app.get('/api/recommendations', async (req, res) => {
     res.status(500).json({
       error: 'Failed to fetch recommendations',
       message: errMsg,
+    });
+  }
+});
+
+// ── Mobile App: Mood-based Movie Recommendations (CSV + TF-IDF) ──
+// GET /api/recommendations/movies?mood=Sad&limit=3&text=optional
+app.get('/api/recommendations/movies', async (req, res) => {
+  try {
+    const { mood, limit = 3, text = '' } = req.query;
+
+    if (!mood) {
+      return res.status(400).json({
+        error: 'Missing required parameter: mood',
+        example: '/api/recommendations/movies?mood=Sad',
+      });
+    }
+
+    const moodNorm = String(mood).trim();
+    const limitNum = Math.min(10, Math.max(1, parseInt(String(limit), 10) || 3));
+    const cacheKey = `movies_${moodNorm.toLowerCase()}_${limitNum}_${String(text).slice(0, 40)}`;
+
+    const cached = cache.get(cacheKey);
+    if (cached) {
+      return res.json({ mood: moodNorm, movies: cached, cached: true, count: cached.length });
+    }
+
+    const { movies: rawMovies } = await recommendMovies(moodNorm, String(text), limitNum);
+
+    if (!rawMovies || rawMovies.length === 0) {
+      return res.status(404).json({
+        error: 'No movie recommendations found for this mood',
+        mood: moodNorm,
+      });
+    }
+
+    const enriched = await Promise.all(
+      rawMovies.map(async (movie, index) => {
+        let videoId = null;
+        let videoUrl = null;
+        let trailer = null;
+
+        const ytKey = `yt_trailer_${movie.title}`.toLowerCase().replace(/\s+/g, '_');
+        const ytCached = cache.get(ytKey);
+        if (ytCached?.videoId) {
+          videoId = ytCached.videoId;
+        } else {
+          const yt = await searchTrailer(movie.title);
+          if (yt?.videoId) {
+            videoId = yt.videoId;
+            cache.set(ytKey, yt, 86400);
+          }
+        }
+
+        if (videoId) {
+          videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
+          trailer = videoUrl;
+        }
+
+        return {
+          id: movie.id ?? index + 1,
+          title: movie.title,
+          artist: movie.genres || 'Film',
+          duration: movie.duration || 'Feature',
+          cover: movie.cover,
+          description: movie.description,
+          rating: movie.rating,
+          emotion: movie.emotion,
+          videoId,
+          videoUrl,
+          trailer,
+        };
+      })
+    );
+
+    cache.set(cacheKey, enriched);
+    console.log(`[Movies] ${enriched.length} picks for mood=${moodNorm}`);
+
+    return res.json({
+      mood: moodNorm,
+      movies: enriched,
+      cached: false,
+      count: enriched.length,
+    });
+  } catch (err) {
+    console.error('[API] Movie recommendations error:', err.message);
+    return res.status(502).json({
+      error: 'Failed to fetch movie recommendations',
+      message: err.message,
     });
   }
 });
@@ -398,6 +487,7 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`\n🎵 SentiVibe backend running on http://localhost:${PORT}`);
   console.log(`   Health:          http://localhost:${PORT}/api/health`);
   console.log(`   Recommendations: http://localhost:${PORT}/api/recommendations?mood=happy`);
+  console.log(`   Movies:          http://localhost:${PORT}/api/recommendations/movies?mood=Sad`);
   console.log(`   Chat (AI):       http://localhost:${PORT}/api/chat`);
   console.log(`   Detection:       http://localhost:${PORT}/api/detect/text`);
   console.log(`   Feedback:        http://localhost:${PORT}/api/feedback\n`);
