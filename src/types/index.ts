@@ -42,6 +42,7 @@ export interface MediaItem {
     albumArt?: string;             // Spotify album artwork
     durationMs?: number;           // Duration in milliseconds
     type?: 'Music' | 'Video' | 'Movie';
+    reviews?: string;
 }
 
 /**
@@ -72,6 +73,7 @@ export interface MovieRecommendation {
     description?: string;
     rating?: number;
     emotion?: string;
+    reviews?: string;
     videoId?: string | null;
     videoUrl?: string | null;
     trailer?: string | null;

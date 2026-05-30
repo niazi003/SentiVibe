@@ -95,6 +95,7 @@ export const ResultsScreen: React.FC = () => {
                         cover: movie.cover,
                         rating: movie.rating,
                         description: movie.description,
+                        reviews: movie.reviews,
                         trailer: movie.trailer || movie.videoUrl || undefined,
                         videoUrl: movie.videoUrl || movie.trailer || undefined,
                         videoId: movie.videoId,
@@ -504,6 +505,15 @@ export const ResultsScreen: React.FC = () => {
                                 )}
 
                                 <View style={styles.modalDivider} />
+
+                                {/* Reviews (From Dataset) */}
+                                {selectedMovie?.reviews && selectedMovie.reviews.trim() !== '' && selectedMovie.reviews !== 'nan' && (
+                                    <>
+                                        <Text style={styles.modalSectionLabel}>💬  Top Review</Text>
+                                        <Text style={styles.modalReviewText}>"{selectedMovie.reviews.trim()}"</Text>
+                                        <View style={styles.modalDivider} />
+                                    </>
+                                )}
 
                                 {/* Trailer */}
                                 <Text style={styles.modalSectionLabel}>🎬  Trailer</Text>
@@ -976,6 +986,19 @@ const styles = StyleSheet.create({
         fontSize: 14,
         color: '#CBD5E1',
         lineHeight: 22,
+    },
+    modalReviewText: {
+        fontSize: 14,
+        color: '#A8B2C1',
+        fontStyle: 'italic',
+        lineHeight: 22,
+        paddingLeft: 12,
+        borderLeftWidth: 2,
+        borderLeftColor: '#4F46E5',
+        backgroundColor: 'rgba(255,255,255,0.03)',
+        paddingVertical: 10,
+        paddingRight: 10,
+        borderRadius: 4,
     },
     trailerLoadingBox: {
         alignItems: 'center',

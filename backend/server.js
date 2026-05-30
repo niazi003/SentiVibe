@@ -323,6 +323,7 @@ app.get('/api/recommendations/movies', async (req, res) => {
           description: movie.description,
           rating: movie.rating,
           emotion: movie.emotion,
+          reviews: movie.reviews,
           // Trailer fields are null — fetched lazily via /api/trailer-search
           videoId: null,
           videoUrl: null,

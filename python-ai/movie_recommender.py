@@ -263,6 +263,7 @@ class MovieRecommender:
                     "emotion": str(row["emotion_norm"]),
                     "cover": _poster_placeholder(title),
                     "duration": "Feature",
+                    "reviews": str(row.get("Reviews", "")),
                 }
             )
         return results
