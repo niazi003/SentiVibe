@@ -47,9 +47,42 @@ const detectRoutes = require('./routes/detect');
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// Cache results for 1 hour to avoid repeated API calls
+// Cache results for 1 hour to avoid redundant API calls
 // Each mood gets its own cache entry
 const cache = new NodeCache({ stdTTL: 3600, checkperiod: 600 });
+
+// ── Movie Poster Fetcher (OMDB API — IMDb Posters) ─────────
+/**
+ * Fetches a real movie poster URL using the OMDB API (IMDb data).
+ * Provide OMDB_API_KEY in .env, or it will use a standard public fallback key.
+ * Returns null if no poster is found — caller keeps the placeholder.
+ */
+async function fetchMoviePoster(title) {
+  try {
+    const apiKey = process.env.OMDB_API_KEY || 'thewdb';
+    const query = encodeURIComponent(title);
+    
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 6000);
+    
+    const response = await fetch(
+      `http://www.omdbapi.com/?apikey=${apiKey}&t=${query}`,
+      { signal: ctrl.signal }
+    );
+    clearTimeout(t);
+    
+    if (!response.ok) return null;
+    
+    const data = await response.json();
+    
+    if (data.Response === 'True' && data.Poster && data.Poster !== 'N/A') {
+      return data.Poster;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
 
 // Enable CORS for React Native (all origins in dev)
 app.use(cors());
@@ -219,10 +252,10 @@ app.get('/api/recommendations', async (req, res) => {
 });
 
 // ── Mobile App: Mood-based Movie Recommendations (CSV + TF-IDF) ──
-// GET /api/recommendations/movies?mood=Sad&limit=3&text=optional
+// GET /api/recommendations/movies?mood=Sad&limit=6&text=optional&movieGenres=["Drama"]&movieNightVibe=drama_romance
 app.get('/api/recommendations/movies', async (req, res) => {
   try {
-    const { mood, limit = 3, text = '' } = req.query;
+    const { mood, limit = 20, text = '', movieGenres: rawGenres = '', movieNightVibe = '' } = req.query;
 
     if (!mood) {
       return res.status(400).json({
@@ -231,16 +264,29 @@ app.get('/api/recommendations/movies', async (req, res) => {
       });
     }
 
-    const moodNorm = String(mood).trim();
-    const limitNum = Math.min(10, Math.max(1, parseInt(String(limit), 10) || 3));
-    const cacheKey = `movies_${moodNorm.toLowerCase()}_${limitNum}_${String(text).slice(0, 40)}`;
-
-    const cached = cache.get(cacheKey);
-    if (cached) {
-      return res.json({ mood: moodNorm, movies: cached, cached: true, count: cached.length });
+    // Parse movieGenres — may arrive as JSON string "["Drama","Sci-Fi"]" or CSV
+    let movieGenres = [];
+    if (rawGenres) {
+      try {
+        movieGenres = JSON.parse(rawGenres);
+      } catch {
+        movieGenres = String(rawGenres).split(',').map(g => g.trim()).filter(Boolean);
+      }
     }
 
-    const { movies: rawMovies } = await recommendMovies(moodNorm, String(text), limitNum);
+    const moodNorm = String(mood).trim();
+    const limitNum = Math.min(50, Math.max(1, parseInt(String(limit), 10) || 20));
+    // ⚠️  No list-level cache here — the Python recommender uses weighted random
+    // sampling so each call intentionally returns a different mix of movies.
+    // Per-title poster and trailer results are still cached individually below.
+
+    const { movies: rawMovies } = await recommendMovies(
+      moodNorm,
+      String(text),
+      limitNum,
+      movieGenres,
+      String(movieNightVibe),
+    );
 
     if (!rawMovies || rawMovies.length === 0) {
       return res.status(404).json({
@@ -255,6 +301,7 @@ app.get('/api/recommendations/movies', async (req, res) => {
         let videoUrl = null;
         let trailer = null;
 
+        // ── YouTube trailer ──────────────────────────────────────
         const ytKey = `yt_trailer_${movie.title}`.toLowerCase().replace(/\s+/g, '_');
         const ytCached = cache.get(ytKey);
         if (ytCached?.videoId) {
@@ -272,12 +319,26 @@ app.get('/api/recommendations/movies', async (req, res) => {
           trailer = videoUrl;
         }
 
+        // ── Real movie poster (OMDB API) ────────────────────────
+        const posterKey = `poster_${movie.title.toLowerCase().replace(/\s+/g, '_')}`;
+        let coverUrl = movie.cover; // placeholder default
+        const cachedPoster = cache.get(posterKey);
+        if (cachedPoster) {
+          coverUrl = cachedPoster;
+        } else {
+          const itunes = await fetchMoviePoster(movie.title);
+          if (itunes) {
+            coverUrl = itunes;
+            cache.set(posterKey, itunes, 86400 * 7); // cache poster for 7 days
+          }
+        }
+
         return {
           id: movie.id ?? index + 1,
           title: movie.title,
           artist: movie.genres || 'Film',
           duration: movie.duration || 'Feature',
-          cover: movie.cover,
+          cover: coverUrl,
           description: movie.description,
           rating: movie.rating,
           emotion: movie.emotion,
@@ -288,8 +349,7 @@ app.get('/api/recommendations/movies', async (req, res) => {
       })
     );
 
-    cache.set(cacheKey, enriched);
-    console.log(`[Movies] ${enriched.length} picks for mood=${moodNorm}`);
+    console.log(`[Movies] ${enriched.length} picks for mood=${moodNorm}${movieGenres.length ? `, genres=${movieGenres.join(',')}` : ''}${movieNightVibe ? `, vibe=${movieNightVibe}` : ''}`);
 
     return res.json({
       mood: moodNorm,

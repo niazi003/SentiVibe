@@ -4,12 +4,12 @@ SentiVibe Emotion Detection Server – runs on port 5001.
 
 Endpoints:
   POST /detect-text   — Emotion from text (DistilRoBERTa)
-  POST /detect-face   — Emotion from camera image (ViT, dima806)
+  POST /detect-face   — Emotion from camera image (DeepFace CNN)
   POST /detect-voice  — Emotion from spoken words (Whisper STT → DistilRoBERTa), tone as fallback
   GET  /health        — Health check
 
 Dependencies:
-  pip install flask flask-cors transformers pillow opencv-python soundfile numpy torch torchaudio
+  pip install flask flask-cors transformers deepface opencv-python soundfile numpy torch torchaudio
   For voice from AAC/M4A: install the ffmpeg CLI and ensure it is on PATH (restart the terminal after changing PATH).
 """
 
@@ -34,7 +34,6 @@ import cv2
 import numpy as np
 import soundfile as sf
 from flask_cors import CORS
-from PIL import Image
 
 app = Flask(__name__)
 CORS(app)
@@ -42,8 +41,7 @@ CORS(app)
 PORT = 5001
 
 TEXT_MODEL_ID = "j-hartmann/emotion-english-distilroberta-base"
-FACE_MODEL_ID = "dima806/facial_emotions_image_detection"
-STT_MODEL_ID = "distil-whisper/distil-small.en"
+STT_MODEL_ID  = "distil-whisper/distil-small.en"
 TONE_MODEL_ID = "HaniaRuby/speech-emotion-recognition-wav2vec2"
 
 # Explicit self-reported mood phrases — checked on transcript before the ML text classifier.
@@ -71,7 +69,7 @@ def health():
         "service": "SentiVibe Emotion Detection",
         "models": {
             "text": TEXT_MODEL_ID,
-            "face": FACE_MODEL_ID if USE_FACE_MODEL else None,
+            "face": "DeepFace (lazy-loaded)",
             "speech_to_text": STT_MODEL_ID if USE_STT_MODEL else None,
             "voice_tone_fallback": TONE_MODEL_ID if USE_TONE_MODEL else None,
         },
@@ -84,20 +82,7 @@ def health():
 
 print("Loading text emotion model...")
 text_model = pipeline("text-classification", model=TEXT_MODEL_ID)
-
-print("Loading face emotion model (ViT)...")
-try:
-    face_model = pipeline("image-classification", model=FACE_MODEL_ID)
-    _face_cascade = cv2.CascadeClassifier(
-        cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
-    )
-    USE_FACE_MODEL = True
-    print("Face emotion model loaded successfully.")
-except Exception as e:
-    USE_FACE_MODEL = False
-    face_model = None
-    _face_cascade = None
-    print(f"Face ML model unavailable ({e}).")
+# DeepFace is imported lazily inside the /detect-face route — no startup cost here.
 
 print("Loading speech-to-text model (Distil-Whisper)...")
 try:
@@ -309,36 +294,6 @@ def heuristic_emotion(audio, sr):
     else:                              return "neutral"
 
 
-def _crop_largest_face_bgr(img_bgr: np.ndarray) -> np.ndarray:
-    """Detect and crop the largest frontal face; fall back to the full frame."""
-    if _face_cascade is None or img_bgr is None or img_bgr.size == 0:
-        return img_bgr
-
-    gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
-    faces = _face_cascade.detectMultiScale(
-        gray,
-        scaleFactor=1.08,
-        minNeighbors=4,
-        minSize=(64, 64),
-    )
-    if len(faces) == 0:
-        return img_bgr
-
-    x, y, w, h = max(faces, key=lambda f: f[2] * f[3])
-    pad = int(0.18 * max(w, h))
-    height, width = img_bgr.shape[:2]
-    x1 = max(0, x - pad)
-    y1 = max(0, y - pad)
-    x2 = min(width, x + w + pad)
-    y2 = min(height, y + h + pad)
-    return img_bgr[y1:y2, x1:x2]
-
-
-def _bgr_to_pil_rgb(img_bgr: np.ndarray) -> Image.Image:
-    rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
-    return Image.fromarray(rgb)
-
-
 def _normalize_model_label(raw_label: str) -> str:
     """Strip HuggingFace label prefixes like LABEL_0 and lower-case."""
     label = (raw_label or "").strip()
@@ -435,28 +390,7 @@ def _emotion_from_voice_pipeline(audio: np.ndarray, sr: int) -> dict:
     }
 
 
-def _emotion_from_face_model(img_bgr: np.ndarray) -> tuple[str, float]:
-    """Run ViT face pipeline on a cropped face region."""
-    cropped = _crop_largest_face_bgr(img_bgr)
-    pil_img = _bgr_to_pil_rgb(cropped)
 
-    results = face_model(pil_img, top_k=3)
-    if not results:
-        raise ValueError("face model returned empty result")
-
-    top = results[0]
-    label = _normalize_model_label(top.get("label", ""))
-    score = float(top.get("score", 0.0))
-
-    # If the top prediction is weak, prefer the highest-scoring non-neutral label.
-    if score < 0.35 and len(results) > 1:
-        for candidate in results:
-            cand_label = _normalize_model_label(candidate.get("label", ""))
-            cand_score = float(candidate.get("score", 0.0))
-            if cand_label != "neutral" and cand_score >= score * 0.85:
-                return cand_label, cand_score
-
-    return label, score
 
 
 def _emotion_from_tone_model(audio_16k: np.ndarray) -> tuple[str, float]:
@@ -508,8 +442,7 @@ def detect_text():
 @app.route("/detect-face", methods=["POST"])
 def detect_face():
     try:
-        if not USE_FACE_MODEL:
-            return jsonify({"error": "Face emotion model is not loaded."}), 503
+        from deepface import DeepFace
 
         data     = request.json
         img_data = base64.b64decode(data["image"])
@@ -518,8 +451,19 @@ def detect_face():
         if img is None:
             return jsonify({"error": "Could not decode image."}), 400
 
-        emotion, confidence = _emotion_from_face_model(img)
-        return jsonify({"emotion": emotion, "confidence": confidence})
+        # enforce_detection=False so partial/angled faces still get a result.
+        # silent=True suppresses DeepFace console spam.
+        analysis = DeepFace.analyze(
+            img,
+            actions=["emotion"],
+            enforce_detection=False,
+            silent=True,
+        )
+        emotions  = analysis[0]["emotion"]            # dict of emotion → % score (numpy.float32)
+        dominant  = analysis[0]["dominant_emotion"]   # string
+        # Explicit float() cast — DeepFace returns numpy.float32 which Flask cannot JSON-serialize.
+        confidence = round(float(emotions[dominant]) / 100.0, 4)
+        return jsonify({"emotion": dominant.lower(), "confidence": confidence})
     except Exception as e:
         import traceback
         traceback.print_exc()
@@ -554,7 +498,7 @@ def detect_voice():
 
 @app.route("/recommend-movies", methods=["GET", "POST"])
 def recommend_movies_route():
-    """Top movie picks for a detected app mood (+ optional chat text for ranking)."""
+    """Top movie picks for a detected app mood (+ optional chat text & user prefs for ranking)."""
     try:
         if not MOVIES_READY:
             return jsonify({"error": "Movie recommender is not loaded."}), 503
@@ -563,18 +507,37 @@ def recommend_movies_route():
             data = request.get_json(silent=True) or {}
             mood = data.get("mood") or data.get("emotion")
             user_text = data.get("text") or data.get("user_text") or ""
-            limit = int(data.get("limit", 3))
+            limit = int(data.get("limit", 20))
+            movie_genres = data.get("movie_genres") or []
+            movie_night_vibe = data.get("movie_night_vibe") or ""
         else:
             mood = request.args.get("mood") or request.args.get("emotion")
             user_text = request.args.get("text", "")
-            limit = int(request.args.get("limit", 3))
+            limit = int(request.args.get("limit", 20))
+            # movie_genres may be sent as a JSON-encoded array string or comma-separated
+            raw_genres = request.args.get("movie_genres", "")
+            if raw_genres:
+                try:
+                    import json as _json
+                    movie_genres = _json.loads(raw_genres)
+                except Exception:
+                    movie_genres = [g.strip() for g in raw_genres.split(",") if g.strip()]
+            else:
+                movie_genres = []
+            movie_night_vibe = request.args.get("movie_night_vibe", "")
 
         if not mood:
             return jsonify({"error": "mood is required"}), 400
 
         from movie_recommender import recommend_movies
 
-        movies = recommend_movies(mood, user_text=user_text, top_k=min(max(limit, 1), 10))
+        movies = recommend_movies(
+            mood,
+            user_text=user_text,
+            top_k=min(max(limit, 1), 50),
+            movie_genres=movie_genres or None,
+            movie_night_vibe=movie_night_vibe or None,
+        )
         return jsonify({"mood": mood, "movies": movies, "count": len(movies)})
     except Exception as e:
         import traceback

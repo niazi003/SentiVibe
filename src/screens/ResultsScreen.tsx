@@ -28,6 +28,7 @@ import { FALLBACK_RECOMMENDATIONS, ICON_STYLE } from '../constants';
 import { AppContext } from '../context/AppContext';
 import { usePlayer } from '../context/PlayerContext';
 import { fetchRecommendations, fetchMovieRecommendations } from '../services/api';
+import { getPreferencesFromFirestore } from '../services/firestorePreferences';
 
 // Enable LayoutAnimation for Android
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -46,11 +47,25 @@ export const ResultsScreen: React.FC = () => {
     const [activeTab] = useState(initialTab);
     const [expandedTrailerId, setExpandedTrailerId] = useState<number | null>(null);
 
+    // User preferences for personalized movie picks
+    const [movieGenres, setMovieGenres] = useState<string[]>([]);
+    const [movieNightVibe, setMovieNightVibe] = useState<string>('');
+
     // API state
     const [tracks, setTracks] = useState<MediaItem[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [isOffline, setIsOffline] = useState(false);
+
+    // Load user preferences from Firestore once on mount
+    useEffect(() => {
+        getPreferencesFromFirestore()
+            .then(prefs => {
+                if (prefs.movieGenres?.length) setMovieGenres(prefs.movieGenres);
+                if (prefs.movieNightVibe) setMovieNightVibe(prefs.movieNightVibe);
+            })
+            .catch(() => {});
+    }, []);
 
     /**
      * Fetch recommendations from backend API.
@@ -62,7 +77,13 @@ export const ResultsScreen: React.FC = () => {
 
         if (activeTab === 'Movie') {
             try {
-                const response = await fetchMovieRecommendations(emotion, 3);
+                const response = await fetchMovieRecommendations(
+                    emotion,
+                    20,
+                    undefined,
+                    movieGenres.length > 0 ? movieGenres : undefined,
+                    movieNightVibe || undefined,
+                );
                 if (response.data && response.data.length > 0) {
                     const mapped: MediaItem[] = response.data.map((movie) => ({
                         id: movie.id,
@@ -70,6 +91,7 @@ export const ResultsScreen: React.FC = () => {
                         artist: movie.artist,
                         duration: movie.duration,
                         cover: movie.cover,
+                        rating: movie.rating,
                         description: movie.description,
                         trailer: movie.trailer || movie.videoUrl || undefined,
                         videoUrl: movie.videoUrl || movie.trailer || undefined,
@@ -127,7 +149,7 @@ export const ResultsScreen: React.FC = () => {
         } finally {
             setIsLoading(false);
         }
-    }, [emotion, activeTab]);
+    }, [emotion, activeTab, movieGenres, movieNightVibe]);
 
     const useFallbackData = () => {
         const fallback = FALLBACK_RECOMMENDATIONS[emotion] || FALLBACK_RECOMMENDATIONS['Happy'];
@@ -257,16 +279,22 @@ export const ResultsScreen: React.FC = () => {
                     {tracks.map((item) => (
                         <GlassCard key={item.id} style={styles.itemCard}>
                             {activeTab === 'Movie' ? (
-                                /* Movie Card Layout */
+                                /* ── Premium Movie Card ─────────────────────────── */
                                 <View style={styles.movieCard}>
+
+                                    {/* Poster + core info row */}
                                     <View style={styles.movieHeader}>
                                         <Image
                                             source={{ uri: item.cover }}
                                             style={styles.moviePoster}
                                         />
                                         <View style={styles.movieInfo}>
-                                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                                                <Text style={[styles.movieTitle, { flex: 1 }]} numberOfLines={2}>{item.title}</Text>
+
+                                            {/* Title + heart */}
+                                            <View style={styles.movieTitleRow}>
+                                                <Text style={[styles.movieTitle, { flex: 1 }]} numberOfLines={2}>
+                                                    {item.title}
+                                                </Text>
                                                 <TouchableOpacity
                                                     style={styles.movieFavBtn}
                                                     onPress={() => toggleFavorite({ ...item, type: activeTab })}
@@ -274,18 +302,65 @@ export const ResultsScreen: React.FC = () => {
                                                     <Icon
                                                         name="heart"
                                                         size={20}
-                                                        color={isFavorite(item.id) ? "#EF4444" : "#FFFFFF"}
+                                                        color={isFavorite(item.id) ? '#EF4444' : '#FFFFFF'}
                                                     />
                                                 </TouchableOpacity>
                                             </View>
+
+                                            {/* Genre chip */}
                                             <View style={styles.movieMeta}>
                                                 <View style={styles.genreBadge}>
-                                                    <Text style={styles.genreText}>{item.artist}</Text>
+                                                    <Text style={styles.genreText} numberOfLines={1}>{item.artist}</Text>
                                                 </View>
-                                                <Text style={styles.movieDuration}>{item.duration}</Text>
                                             </View>
+
+                                            {/* ── Rating block ─────────────────── */}
+                                            {item.rating != null && (() => {
+                                                const score = item.rating;
+                                                // badge colour: green ≥7, amber ≥5, red <5
+                                                const badgeColor =
+                                                    score >= 7 ? '#10B981' :
+                                                    score >= 5 ? '#F59E0B' : '#EF4444';
+                                                // filled stars out of 5 (scale 0–10 → 0–5)
+                                                const starsOf5 = score / 2;
+                                                const fullStars = Math.floor(starsOf5);
+                                                const hasHalf = (starsOf5 - fullStars) >= 0.4;
+                                                return (
+                                                    <View style={styles.ratingBlock}>
+                                                        {/* Numeric badge */}
+                                                        <View style={[styles.ratingBadge, { backgroundColor: badgeColor + '22', borderColor: badgeColor }]}>
+                                                            <Text style={styles.ratingBadgeIcon}>⭐</Text>
+                                                            <Text style={[styles.ratingBadgeText, { color: badgeColor }]}>
+                                                                {score.toFixed(1)}
+                                                            </Text>
+                                                            <Text style={styles.ratingScale}>/10</Text>
+                                                        </View>
+                                                        {/* Star row */}
+                                                        <View style={styles.starsRow}>
+                                                            {[1, 2, 3, 4, 5].map(i => (
+                                                                <Text
+                                                                    key={i}
+                                                                    style={[
+                                                                        styles.starChar,
+                                                                        i <= fullStars ? styles.starFull :
+                                                                        (i === fullStars + 1 && hasHalf) ? styles.starHalf :
+                                                                        styles.starEmpty,
+                                                                    ]}
+                                                                >
+                                                                    {i <= fullStars ? '★' : (i === fullStars + 1 && hasHalf) ? '½' : '☆'}
+                                                                </Text>
+                                                            ))}
+                                                        </View>
+                                                    </View>
+                                                );
+                                            })()}
+
+                                            {/* Synopsis */}
                                             {item.description && (
-                                                <Text style={styles.movieSynopsis} numberOfLines={expandedTrailerId === item.id ? undefined : 3}>
+                                                <Text
+                                                    style={styles.movieSynopsis}
+                                                    numberOfLines={expandedTrailerId === item.id ? undefined : 3}
+                                                >
                                                     {item.description}
                                                 </Text>
                                             )}
@@ -577,44 +652,102 @@ const styles = StyleSheet.create({
     },
     moviePoster: {
         width: 100,
-        height: 150,
-        borderRadius: 8,
+        height: 155,
+        borderRadius: 10,
         backgroundColor: '#1E293B',
     },
     movieInfo: {
         flex: 1,
-        gap: 8,
+        gap: 6,
+    },
+    movieTitleRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'flex-start',
     },
     movieTitle: {
-        fontSize: 16,
-        fontWeight: '700',
+        fontSize: 15,
+        fontWeight: '800',
         color: '#FFFFFF',
+        lineHeight: 20,
     },
     movieMeta: {
         flexDirection: 'row',
         alignItems: 'center',
         gap: 8,
+        flexWrap: 'wrap',
     },
     genreBadge: {
-        backgroundColor: 'rgba(96, 165, 250, 0.2)',
+        backgroundColor: 'rgba(96, 165, 250, 0.15)',
         paddingHorizontal: 8,
-        paddingVertical: 4,
-        borderRadius: 4,
+        paddingVertical: 3,
+        borderRadius: 6,
+        borderWidth: 1,
+        borderColor: 'rgba(96, 165, 250, 0.3)',
+        maxWidth: 150,
     },
     genreText: {
-        fontSize: 11,
-        fontWeight: '600',
+        fontSize: 10,
+        fontWeight: '700',
         color: '#60A5FA',
         textTransform: 'uppercase',
+        letterSpacing: 0.5,
     },
     movieDuration: {
-        fontSize: 12,
+        fontSize: 11,
         color: '#64748B',
     },
+    // ── Rating styles ────────────────────────────────────────────
+    ratingBlock: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        marginTop: 2,
+    },
+    ratingBadge: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 3,
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+        borderRadius: 8,
+        borderWidth: 1,
+    },
+    ratingBadgeIcon: {
+        fontSize: 11,
+    },
+    ratingBadgeText: {
+        fontSize: 13,
+        fontWeight: '800',
+        letterSpacing: 0.3,
+    },
+    ratingScale: {
+        fontSize: 10,
+        color: '#64748B',
+        fontWeight: '500',
+    },
+    starsRow: {
+        flexDirection: 'row',
+        gap: 1,
+    },
+    starChar: {
+        fontSize: 13,
+    },
+    starFull: {
+        color: '#FBBF24',
+    },
+    starHalf: {
+        color: '#FCD34D',
+    },
+    starEmpty: {
+        color: '#334155',
+    },
+    // ────────────────────────────────────────────────────────────
     movieSynopsis: {
         fontSize: 12,
         color: '#94A3B8',
         lineHeight: 18,
+        marginTop: 2,
     },
     trailerSection: {
         marginTop: 16,

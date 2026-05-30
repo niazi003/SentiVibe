@@ -343,26 +343,36 @@ const MOVIE_CACHE_PREFIX = 'sentivibe_movie_recommendations_';
 
 /**
  * Fetch mood-based movie recommendations (TF-IDF dataset + YouTube trailers).
+ * Accepts optional user preferences to personalize results.
  */
 export async function fetchMovieRecommendations(
   mood: string,
-  limit: number = 3,
-  userText?: string
+  limit: number = 20,
+  userText?: string,
+  movieGenres?: string[],
+  movieNightVibe?: string,
 ): Promise<ApiResponse<MovieRecommendation[]>> {
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
 
-    const params = new URLSearchParams({
-      mood,
-      limit: String(limit),
-    });
+    // Build query string manually — RN's URLSearchParams polyfill typing lacks .set()
+    const queryParts: string[] = [
+      `mood=${encodeURIComponent(mood)}`,
+      `limit=${limit}`,
+    ];
     if (userText?.trim()) {
-      params.set('text', userText.trim());
+      queryParts.push(`text=${encodeURIComponent(userText.trim())}`);
+    }
+    if (movieGenres && movieGenres.length > 0) {
+      queryParts.push(`movieGenres=${encodeURIComponent(JSON.stringify(movieGenres))}`);
+    }
+    if (movieNightVibe && movieNightVibe !== 'no preference') {
+      queryParts.push(`movieNightVibe=${encodeURIComponent(movieNightVibe)}`);
     }
 
     const response = await fetch(
-      `${BASE_URL}/recommendations/movies?${params.toString()}`,
+      `${BASE_URL}/recommendations/movies?${queryParts.join('&')}`,
       { signal: controller.signal }
     );
 
@@ -376,10 +386,9 @@ export async function fetchMovieRecommendations(
     const data = await response.json();
     const movies: MovieRecommendation[] = data.movies ?? [];
 
-    await AsyncStorage.setItem(
-      `${MOVIE_CACHE_PREFIX}${mood.toLowerCase()}`,
-      JSON.stringify(movies)
-    ).catch(() => {});
+    // Don't write movies to AsyncStorage — each call is intentionally randomized,
+    // so caching would freeze one batch and defeat the variety mechanism.
+    // The read-only offline fallback below still works from any pre-existing value.
 
     return {
       data: movies,

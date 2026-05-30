@@ -84,13 +84,17 @@ async function detectFaceEmotion(imageBase64) {
     const response = await axios.post(
       `${EMOTION_SERVICE_URL}/detect-face`,
       { image: imageBase64 },
-      { timeout: 30_000, headers: { 'Content-Type': 'application/json' } }
+      // 120 s — DeepFace downloads its CNN weights on the first call (~40-90 s).
+      // Subsequent calls are fast once the weights are cached on disk.
+      { timeout: 120_000, headers: { 'Content-Type': 'application/json' } }
     );
     return response.data;
   } catch (err) {
     if (err.code === 'ECONNREFUSED') {
       throw new Error('Emotion detection service is not running. Start it with: python emotion_server.py');
     }
+    const pyError = err.response?.data?.error || err.response?.data?.message;
+    if (pyError) throw new Error(pyError);
     throw err;
   }
 }
@@ -134,16 +138,25 @@ async function detectVoiceEmotion(buffer, originalname, mimetype) {
  * Mood-based movie recommendations (Python TF-IDF engine).
  * @param {string} mood - app mood label (e.g. Sad, Happy)
  * @param {string} [userText] - optional chat context
- * @param {number} [limit=3]
+ * @param {number} [limit=6]
+ * @param {string[]} [movieGenres] - user preferred genre chips from onboarding
+ * @param {string} [movieNightVibe] - user movie-night vibe from onboarding
  */
-async function recommendMovies(mood, userText = '', limit = 3) {
+async function recommendMovies(mood, userText = '', limit = 20, movieGenres = [], movieNightVibe = '') {
   try {
+    const params = {
+      mood,
+      text: userText,
+      limit,
+    };
+    if (movieGenres && movieGenres.length > 0) {
+      params.movie_genres = JSON.stringify(movieGenres);
+    }
+    if (movieNightVibe && movieNightVibe !== 'no preference') {
+      params.movie_night_vibe = movieNightVibe;
+    }
     const response = await axios.get(`${EMOTION_SERVICE_URL}/recommend-movies`, {
-      params: {
-        mood,
-        text: userText,
-        limit,
-      },
+      params,
       timeout: 30_000,
     });
     return response.data;
