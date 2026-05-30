@@ -297,29 +297,10 @@ app.get('/api/recommendations/movies', async (req, res) => {
 
     const enriched = await Promise.all(
       rawMovies.map(async (movie, index) => {
-        let videoId = null;
-        let videoUrl = null;
-        let trailer = null;
-
-        // ── YouTube trailer ──────────────────────────────────────
-        const ytKey = `yt_trailer_${movie.title}`.toLowerCase().replace(/\s+/g, '_');
-        const ytCached = cache.get(ytKey);
-        if (ytCached?.videoId) {
-          videoId = ytCached.videoId;
-        } else {
-          const yt = await searchTrailer(movie.title);
-          if (yt?.videoId) {
-            videoId = yt.videoId;
-            cache.set(ytKey, yt, 86400);
-          }
-        }
-
-        if (videoId) {
-          videoUrl = `https://www.youtube.com/watch?v=${videoId}`;
-          trailer = videoUrl;
-        }
-
         // ── Real movie poster (OMDB API) ────────────────────────
+        // Trailers are NOT fetched here — they are loaded on-demand when the
+        // user taps "Watch Trailer", via GET /api/trailer-search?title=...
+        // This avoids burning YouTube API quota for movies nobody watches.
         const posterKey = `poster_${movie.title.toLowerCase().replace(/\s+/g, '_')}`;
         let coverUrl = movie.cover; // placeholder default
         const cachedPoster = cache.get(posterKey);
@@ -342,9 +323,10 @@ app.get('/api/recommendations/movies', async (req, res) => {
           description: movie.description,
           rating: movie.rating,
           emotion: movie.emotion,
-          videoId,
-          videoUrl,
-          trailer,
+          // Trailer fields are null — fetched lazily via /api/trailer-search
+          videoId: null,
+          videoUrl: null,
+          trailer: null,
         };
       })
     );
@@ -368,6 +350,35 @@ app.get('/api/recommendations/movies', async (req, res) => {
 
 // ── Spotify Auth (Mobile OAuth flow) ──────────────────────────
 // ── YouTube Auth & On-Demand Search ──────────────────────────
+
+// GET /api/trailer-search?title=The+Dark+Knight
+// Lazy on-demand YouTube trailer lookup — only called when the user taps "Watch Trailer".
+// Keeps the movie recommendations endpoint free of YouTube quota usage.
+app.get('/api/trailer-search', async (req, res) => {
+  try {
+    const { title } = req.query;
+    if (!title) {
+      return res.status(400).json({ error: 'Missing title' });
+    }
+
+    const cacheKey = `yt_trailer_${String(title)}`.toLowerCase().replace(/\s+/g, '_');
+    const cached = cache.get(cacheKey);
+    if (cached) {
+      return res.json(cached);
+    }
+
+    const result = await searchTrailer(String(title));
+    if (result?.videoId) {
+      cache.set(cacheKey, result, 86400); // Cache for 24 hours
+      return res.json(result);
+    }
+    res.status(404).json({ error: 'Trailer not found' });
+  } catch (error) {
+    console.error('[Trailer Search] Failed:', error);
+    res.status(500).json({ error: 'Failed to search for trailer' });
+  }
+});
+
 app.get('/api/youtube-search', async (req, res) => {
   try {
     const { title, artist } = req.query;

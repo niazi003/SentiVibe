@@ -381,7 +381,7 @@ export const PlayerScreen: React.FC = () => {
                                     name={isPlaying ? 'pause' : 'play'}
                                     size={32}
                                     color="#FFFFFF"
-                                    style={ICON_STYLE}
+                                    style={!isPlaying ? { marginLeft: 4 } : undefined}
                                 />
                             </View>
                         </TouchableOpacity>
@@ -451,6 +451,7 @@ export const PlayerScreen: React.FC = () => {
                                 name={isPlaying ? 'pause' : 'play'}
                                 size={32}
                                 color="#FFFFFF"
+                                style={!isPlaying ? { marginLeft: 4 } : undefined}
                             />
                         </LinearGradient>
                     </TouchableOpacity>
@@ -482,7 +483,7 @@ export const PlayerScreen: React.FC = () => {
                                             style={styles.queueCoverImage}
                                         />
                                         <View style={styles.queuePlayOverlay}>
-                                            <Icon name="play" size={12} color="#FFFFFF" />
+                                            <Icon name="play" size={12} color="#FFFFFF" style={{ marginLeft: 2 }} />
                                         </View>
                                     </View>
                                     <View style={styles.queueInfo}>

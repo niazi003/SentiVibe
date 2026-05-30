@@ -136,6 +136,36 @@ export async function fetchYouTubeVideoId(title: string, artist: string): Promis
   }
 }
 
+/**
+ * Fetch YouTube trailer videoId on-demand for a single movie.
+ * Called only when the user taps "Watch Trailer" — not on page load.
+ * This avoids burning YouTube Data API quota for movies nobody watches.
+ */
+export async function fetchMovieTrailer(title: string): Promise<{ videoId: string; videoUrl: string } | null> {
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
+
+    const response = await fetch(
+      `${BASE_URL}/trailer-search?title=${encodeURIComponent(title)}`,
+      { signal: controller.signal }
+    );
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) return null;
+    const data = await response.json();
+    if (!data.videoId) return null;
+    return {
+      videoId: data.videoId,
+      videoUrl: `https://www.youtube.com/watch?v=${data.videoId}`,
+    };
+  } catch (error) {
+    console.warn('[API] Trailer search failed:', error);
+    return null;
+  }
+}
+
 // ─────────────────────────────────────────────────────────────
 // AI CHAT
 // ─────────────────────────────────────────────────────────────

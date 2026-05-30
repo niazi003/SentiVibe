@@ -14,9 +14,9 @@ import {
     TouchableOpacity,
     ScrollView,
     Image,
-    LayoutAnimation,
-    Platform,
-    UIManager,
+    Modal,
+    ActivityIndicator,
+    Dimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
@@ -27,13 +27,10 @@ import { NavigationProp, RootStackParamList, MediaItem } from '../types';
 import { FALLBACK_RECOMMENDATIONS, ICON_STYLE } from '../constants';
 import { AppContext } from '../context/AppContext';
 import { usePlayer } from '../context/PlayerContext';
-import { fetchRecommendations, fetchMovieRecommendations } from '../services/api';
+import { fetchRecommendations, fetchMovieRecommendations, fetchMovieTrailer } from '../services/api';
 import { getPreferencesFromFirestore } from '../services/firestorePreferences';
 
-// Enable LayoutAnimation for Android
-if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
-    UIManager.setLayoutAnimationEnabledExperimental(true);
-}
+const SCREEN_HEIGHT = Dimensions.get('window').height;
 
 type ResultsRouteProp = RouteProp<RootStackParamList, 'Results'>;
 
@@ -45,11 +42,16 @@ export const ResultsScreen: React.FC = () => {
     const { playTrack } = usePlayer();
 
     const [activeTab] = useState(initialTab);
-    const [expandedTrailerId, setExpandedTrailerId] = useState<number | null>(null);
 
     // User preferences for personalized movie picks
     const [movieGenres, setMovieGenres] = useState<string[]>([]);
     const [movieNightVibe, setMovieNightVibe] = useState<string>('');
+
+    // Movie detail modal state
+    const [selectedMovie, setSelectedMovie] = useState<MediaItem | null>(null);
+    const [modalTrailerState, setModalTrailerState] = useState<
+        { videoId: string; videoUrl: string } | 'loading' | 'not_found' | null
+    >(null);
 
     // API state
     const [tracks, setTracks] = useState<MediaItem[]>([]);
@@ -169,9 +171,23 @@ export const ResultsScreen: React.FC = () => {
         loadRecommendations();
     }, [loadRecommendations]);
 
-    const toggleTrailer = (itemId: number) => {
-        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-        setExpandedTrailerId(expandedTrailerId === itemId ? null : itemId);
+    /** Open a movie's detail + trailer modal */
+    const openMovieModal = (item: MediaItem) => {
+        setSelectedMovie(item);
+        setModalTrailerState(null);
+    };
+
+    const closeMovieModal = () => {
+        setSelectedMovie(null);
+        setModalTrailerState(null);
+    };
+
+    /** Fetch trailer on-demand when user taps Watch Trailer inside the modal */
+    const handleModalTrailer = async () => {
+        if (!selectedMovie || modalTrailerState !== null) return;
+        setModalTrailerState('loading');
+        const result = await fetchMovieTrailer(selectedMovie.title);
+        setModalTrailerState(result ?? 'not_found');
     };
 
     /**
@@ -214,43 +230,45 @@ export const ResultsScreen: React.FC = () => {
     };
 
     return (
-        <SafeAreaView style={styles.container} edges={['top']}>
-            {/* Header */}
+        <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
+            {/* Header — compact single-row */}
             <View style={styles.header}>
-                <TouchableOpacity
-                    style={styles.backButton}
-                    onPress={() => navigation.navigate('Chatbot', { detectedEmotion: emotion, backToChoices: true })}
-                >
-                    <Icon name="arrow-left" size={18} color="#94A3B8" style={ICON_STYLE} />
-                    <Text style={styles.backText}>Back</Text>
-                </TouchableOpacity>
+                <View style={styles.headerRow}>
+                    <TouchableOpacity
+                        style={styles.backButton}
+                        onPress={() => navigation.navigate('Chatbot', { detectedEmotion: emotion, backToChoices: true })}
+                    >
+                        <Icon name="arrow-left" size={15} color="#94A3B8" style={ICON_STYLE} />
+                        <Text style={styles.backText}>Back</Text>
+                    </TouchableOpacity>
 
-                <View style={styles.moodSection}>
-                    <Text style={styles.moodLabel}>Detected Mood</Text>
-                    <Text style={styles.moodText}>{emotion}</Text>
+                    <View style={styles.moodSection}>
+                        <Text style={styles.moodLabel}>Mood</Text>
+                        <Text style={styles.moodText}>{emotion}</Text>
+                    </View>
+
+                    <View style={styles.headerActions}>
+                        <View style={styles.tabIcon}>
+                            {getTabIcon()}
+                        </View>
+                        <TouchableOpacity
+                            style={styles.favoritesBtn}
+                            onPress={() => navigation.navigate('Favorites')}
+                        >
+                            <Icon name="heart" size={15} color="#FFFFFF" style={{ marginTop: 2 /* visual fix for heart */ }} />
+                        </TouchableOpacity>
+                    </View>
                 </View>
-
-                <View style={styles.tabIcon}>
-                    {getTabIcon()}
-                </View>
-
-                <TouchableOpacity
-                    style={styles.favoritesBtn}
-                    onPress={() => navigation.navigate('Favorites')}
-                >
-                    <Icon name="heart" size={18} color="#FFFFFF" style={ICON_STYLE} />
-                </TouchableOpacity>
 
                 <View style={styles.divider} />
 
-                {/* Status indicator */}
                 <View style={styles.statusRow}>
                     <Text style={styles.description}>
                         Showing <Text style={styles.descriptionBold}>{activeTab}</Text> recommendations
                     </Text>
                     {isOffline && (
                         <View style={styles.offlineBadge}>
-                            <Icon name="wifi-off" size={12} color="#F59E0B" />
+                            <Icon name="wifi-off" size={11} color="#F59E0B" />
                             <Text style={styles.offlineText}>Offline</Text>
                         </View>
                     )}
@@ -279,128 +297,65 @@ export const ResultsScreen: React.FC = () => {
                     {tracks.map((item) => (
                         <GlassCard key={item.id} style={styles.itemCard}>
                             {activeTab === 'Movie' ? (
-                                /* ── Premium Movie Card ─────────────────────────── */
-                                <View style={styles.movieCard}>
-
-                                    {/* Poster + core info row */}
-                                    <View style={styles.movieHeader}>
-                                        <Image
-                                            source={{ uri: item.cover }}
-                                            style={styles.moviePoster}
-                                        />
-                                        <View style={styles.movieInfo}>
-
-                                            {/* Title + heart */}
-                                            <View style={styles.movieTitleRow}>
-                                                <Text style={[styles.movieTitle, { flex: 1 }]} numberOfLines={2}>
-                                                    {item.title}
-                                                </Text>
-                                                <TouchableOpacity
-                                                    style={styles.movieFavBtn}
-                                                    onPress={() => toggleFavorite({ ...item, type: activeTab })}
-                                                >
-                                                    <Icon
-                                                        name="heart"
-                                                        size={20}
-                                                        color={isFavorite(item.id) ? '#EF4444' : '#FFFFFF'}
-                                                    />
-                                                </TouchableOpacity>
-                                            </View>
-
-                                            {/* Genre chip */}
-                                            <View style={styles.movieMeta}>
-                                                <View style={styles.genreBadge}>
-                                                    <Text style={styles.genreText} numberOfLines={1}>{item.artist}</Text>
+                                /* ── Premium Movie Card (tap to open modal) ── */
+                                <TouchableOpacity activeOpacity={0.85} onPress={() => openMovieModal(item)}>
+                                    <View style={styles.movieCard}>
+                                        <View style={styles.movieHeader}>
+                                            <Image source={{ uri: item.cover }} style={styles.moviePoster} />
+                                            <View style={styles.movieInfo}>
+                                                <View style={styles.movieTitleRow}>
+                                                    <Text style={[styles.movieTitle, { flex: 1 }]} numberOfLines={2}>
+                                                        {item.title}
+                                                    </Text>
+                                                    <TouchableOpacity
+                                                        style={styles.movieFavBtn}
+                                                        onPress={() => toggleFavorite({ ...item, type: activeTab })}
+                                                    >
+                                                        <Icon name="heart" size={20} color={isFavorite(item.id) ? '#EF4444' : '#FFFFFF'} />
+                                                    </TouchableOpacity>
                                                 </View>
-                                            </View>
-
-                                            {/* ── Rating block ─────────────────── */}
-                                            {item.rating != null && (() => {
-                                                const score = item.rating;
-                                                // badge colour: green ≥7, amber ≥5, red <5
-                                                const badgeColor =
-                                                    score >= 7 ? '#10B981' :
-                                                    score >= 5 ? '#F59E0B' : '#EF4444';
-                                                // filled stars out of 5 (scale 0–10 → 0–5)
-                                                const starsOf5 = score / 2;
-                                                const fullStars = Math.floor(starsOf5);
-                                                const hasHalf = (starsOf5 - fullStars) >= 0.4;
-                                                return (
-                                                    <View style={styles.ratingBlock}>
-                                                        {/* Numeric badge */}
-                                                        <View style={[styles.ratingBadge, { backgroundColor: badgeColor + '22', borderColor: badgeColor }]}>
-                                                            <Text style={styles.ratingBadgeIcon}>⭐</Text>
-                                                            <Text style={[styles.ratingBadgeText, { color: badgeColor }]}>
-                                                                {score.toFixed(1)}
-                                                            </Text>
-                                                            <Text style={styles.ratingScale}>/10</Text>
-                                                        </View>
-                                                        {/* Star row */}
-                                                        <View style={styles.starsRow}>
-                                                            {[1, 2, 3, 4, 5].map(i => (
-                                                                <Text
-                                                                    key={i}
-                                                                    style={[
-                                                                        styles.starChar,
-                                                                        i <= fullStars ? styles.starFull :
-                                                                        (i === fullStars + 1 && hasHalf) ? styles.starHalf :
-                                                                        styles.starEmpty,
-                                                                    ]}
-                                                                >
-                                                                    {i <= fullStars ? '★' : (i === fullStars + 1 && hasHalf) ? '½' : '☆'}
-                                                                </Text>
-                                                            ))}
-                                                        </View>
+                                                <View style={styles.movieMeta}>
+                                                    <View style={styles.genreBadge}>
+                                                        <Text style={styles.genreText} numberOfLines={1}>{item.artist}</Text>
                                                     </View>
-                                                );
-                                            })()}
-
-                                            {/* Synopsis */}
-                                            {item.description && (
-                                                <Text
-                                                    style={styles.movieSynopsis}
-                                                    numberOfLines={expandedTrailerId === item.id ? undefined : 3}
-                                                >
-                                                    {item.description}
-                                                </Text>
-                                            )}
+                                                </View>
+                                                {item.rating != null && (() => {
+                                                    const score = item.rating;
+                                                    const badgeColor = score >= 7 ? '#10B981' : score >= 5 ? '#F59E0B' : '#EF4444';
+                                                    const starsOf5 = score / 2;
+                                                    const fullStars = Math.floor(starsOf5);
+                                                    const hasHalf = (starsOf5 - fullStars) >= 0.4;
+                                                    return (
+                                                        <View style={styles.ratingBlock}>
+                                                            <View style={[styles.ratingBadge, { backgroundColor: badgeColor + '22', borderColor: badgeColor }]}>
+                                                                <Text style={styles.ratingBadgeIcon}>⭐</Text>
+                                                                <Text style={[styles.ratingBadgeText, { color: badgeColor }]}>{score.toFixed(1)}</Text>
+                                                                <Text style={styles.ratingScale}>/10</Text>
+                                                            </View>
+                                                            <View style={styles.starsRow}>
+                                                                {[1, 2, 3, 4, 5].map(i => (
+                                                                    <Text key={i} style={[styles.starChar, i <= fullStars ? styles.starFull : (i === fullStars + 1 && hasHalf) ? styles.starHalf : styles.starEmpty]}>
+                                                                        {i <= fullStars ? '★' : (i === fullStars + 1 && hasHalf) ? '½' : '☆'}
+                                                                    </Text>
+                                                                ))}
+                                                            </View>
+                                                        </View>
+                                                    );
+                                                })()}
+                                                {item.description && (
+                                                    <Text style={styles.movieSynopsis} numberOfLines={2}>
+                                                        {item.description}
+                                                    </Text>
+                                                )}
+                                            </View>
+                                        </View>
+                                        <View style={styles.movieTapHint}>
+                                            <Icon name="film" size={11} color="#475569" />
+                                            <Text style={styles.movieTapHintText}>Tap for details & trailer</Text>
+                                            <Icon name="chevron-right" size={11} color="#475569" />
                                         </View>
                                     </View>
-
-                                    {/* Trailer Section */}
-                                    {item.trailer && (
-                                        <View style={styles.trailerSection}>
-                                            {expandedTrailerId === item.id ? (
-                                                <>
-                                                    <View style={styles.trailerContainer}>
-                                                        <YouTubePlayer
-                                                            videoId={extractYouTubeId(item.trailer) || ''}
-                                                            height={200}
-                                                            autoplay={true}
-                                                        />
-                                                    </View>
-                                                    <TouchableOpacity
-                                                        style={styles.closeTrailerBtn}
-                                                        onPress={() => toggleTrailer(item.id)}
-                                                    >
-                                                        <Icon name="x" size={16} color="#94A3B8" style={ICON_STYLE} />
-                                                        <Text style={styles.closeTrailerText}>Close Trailer</Text>
-                                                    </TouchableOpacity>
-                                                </>
-                                            ) : (
-                                                <TouchableOpacity
-                                                    style={styles.watchTrailerBtn}
-                                                    onPress={() => toggleTrailer(item.id)}
-                                                >
-                                                    <View style={styles.trailerPlayIcon}>
-                                                        <Icon name="play" size={16} color="#FFFFFF" style={ICON_STYLE} />
-                                                    </View>
-                                                    <Text style={styles.watchTrailerText}>Watch Trailer</Text>
-                                                </TouchableOpacity>
-                                            )}
-                                        </View>
-                                    )}
-                                </View>
+                                </TouchableOpacity>
                             ) : (
                                 /* Music/Video Card Layout */
                                 <TouchableOpacity
@@ -417,7 +372,7 @@ export const ResultsScreen: React.FC = () => {
                                             <Text style={styles.itemArtist}>{item.artist}</Text>
                                         </View>
                                         <View style={styles.playButton}>
-                                            <Text style={styles.playIcon}>▶</Text>
+                                            <Icon name="play" size={13} color="#60A5FA" style={{ marginLeft: 2 }} />
                                         </View>
                                         <TouchableOpacity
                                             style={styles.favBtn}
@@ -462,6 +417,131 @@ export const ResultsScreen: React.FC = () => {
                     </LinearGradient>
                 </TouchableOpacity>
             </GlassCard>
+
+            {/* ──── Movie Detail Modal ──── */}
+            <Modal
+                visible={selectedMovie !== null}
+                animationType="slide"
+                transparent={true}
+                statusBarTranslucent
+                onRequestClose={closeMovieModal}
+            >
+                <View style={styles.modalOverlay}>
+                    <TouchableOpacity style={styles.modalBackdrop} activeOpacity={1} onPress={closeMovieModal} />
+                    <View style={styles.modalSheet}>
+                        <ScrollView showsVerticalScrollIndicator={false} bounces={true}>
+                            {/* Hero Poster */}
+                            <View style={styles.modalPosterWrap}>
+                                <Image source={{ uri: selectedMovie?.cover }} style={styles.modalPosterImg} resizeMode="cover" />
+                                <LinearGradient
+                                    colors={['rgba(2,6,23,0)', 'rgba(2,6,23,0.65)', 'rgba(11,17,32,1)']}
+                                    style={styles.modalPosterGradient}
+                                />
+                                <TouchableOpacity style={styles.modalCloseBtn} onPress={closeMovieModal}>
+                                    <Icon name="x" size={18} color="#FFFFFF" />
+                                </TouchableOpacity>
+                                <View style={styles.modalPosterTitleWrap}>
+                                    <Text style={styles.modalPosterTitle} numberOfLines={2}>{selectedMovie?.title}</Text>
+                                </View>
+                            </View>
+
+                            <View style={styles.modalContent}>
+                                {/* Genre + Rating badge + Heart */}
+                                <View style={styles.modalMetaRow}>
+                                    <View style={styles.genreBadge}>
+                                        <Text style={styles.genreText}>{selectedMovie?.artist}</Text>
+                                    </View>
+                                    {selectedMovie?.rating != null && (() => {
+                                        const score = selectedMovie.rating!;
+                                        const badgeColor = score >= 7 ? '#10B981' : score >= 5 ? '#F59E0B' : '#EF4444';
+                                        return (
+                                            <View style={[styles.ratingBadge, { backgroundColor: badgeColor + '22', borderColor: badgeColor }]}>
+                                                <Text style={styles.ratingBadgeIcon}>⭐</Text>
+                                                <Text style={[styles.ratingBadgeText, { color: badgeColor }]}>{score.toFixed(1)}</Text>
+                                                <Text style={styles.ratingScale}>/10</Text>
+                                            </View>
+                                        );
+                                    })()}
+                                    <View style={{ flex: 1 }} />
+                                    <TouchableOpacity
+                                        style={styles.modalFavBtn}
+                                        onPress={() => selectedMovie && toggleFavorite({ ...selectedMovie, type: 'Movie' })}
+                                    >
+                                        <Icon
+                                            name="heart"
+                                            size={22}
+                                            color={selectedMovie && isFavorite(selectedMovie.id) ? '#EF4444' : '#FFFFFF'}
+                                        />
+                                    </TouchableOpacity>
+                                </View>
+
+                                {/* Star row */}
+                                {selectedMovie?.rating != null && (() => {
+                                    const score = selectedMovie.rating!;
+                                    const starsOf5 = score / 2;
+                                    const fullStars = Math.floor(starsOf5);
+                                    const hasHalf = (starsOf5 - fullStars) >= 0.4;
+                                    return (
+                                        <View style={styles.modalStarsRow}>
+                                            {[1, 2, 3, 4, 5].map(i => (
+                                                <Text key={i} style={[styles.starChar, i <= fullStars ? styles.starFull : (i === fullStars + 1 && hasHalf) ? styles.starHalf : styles.starEmpty]}>
+                                                    {i <= fullStars ? '★' : (i === fullStars + 1 && hasHalf) ? '½' : '☆'}
+                                                </Text>
+                                            ))}
+                                            <Text style={styles.modalRatingLabel}> {selectedMovie.rating!.toFixed(1)} / 10</Text>
+                                        </View>
+                                    );
+                                })()}
+
+                                <View style={styles.modalDivider} />
+
+                                {/* Synopsis */}
+                                {selectedMovie?.description && (
+                                    <>
+                                        <Text style={styles.modalSectionLabel}>Synopsis</Text>
+                                        <Text style={styles.modalSynopsis}>{selectedMovie.description}</Text>
+                                    </>
+                                )}
+
+                                <View style={styles.modalDivider} />
+
+                                {/* Trailer */}
+                                <Text style={styles.modalSectionLabel}>🎬  Trailer</Text>
+                                {modalTrailerState === null && (
+                                    <TouchableOpacity style={styles.watchTrailerBtn} onPress={handleModalTrailer}>
+                                        <View style={styles.trailerPlayIcon}>
+                                            <Icon name="play" size={16} color="#FFFFFF" style={{ marginLeft: 2 }} />
+                                        </View>
+                                        <Text style={styles.watchTrailerText}>Watch Trailer</Text>
+                                    </TouchableOpacity>
+                                )}
+                                {modalTrailerState === 'loading' && (
+                                    <View style={styles.trailerLoadingBox}>
+                                        <ActivityIndicator size="small" color="#EF4444" />
+                                        <Text style={styles.trailerLoadingText}>  Loading trailer...</Text>
+                                    </View>
+                                )}
+                                {modalTrailerState === 'not_found' && (
+                                    <View style={styles.trailerLoadingBox}>
+                                        <Text style={styles.trailerLoadingText}>😕 Trailer not available</Text>
+                                    </View>
+                                )}
+                                {modalTrailerState && modalTrailerState !== 'loading' && modalTrailerState !== 'not_found' && (
+                                    <View style={styles.trailerContainer}>
+                                        <YouTubePlayer
+                                            videoId={(modalTrailerState as { videoId: string }).videoId}
+                                            height={210}
+                                            autoplay={true}
+                                        />
+                                    </View>
+                                )}
+
+                                <View style={{ height: 24 }} />
+                            </View>
+                        </ScrollView>
+                    </View>
+                </View>
+            </Modal>
         </SafeAreaView>
     );
 };
@@ -472,61 +552,70 @@ const styles = StyleSheet.create({
         backgroundColor: '#020617',
     },
     header: {
-        padding: 32,
-        paddingBottom: 16,
+        paddingHorizontal: 14,
+        paddingTop: 10,
+        paddingBottom: 4,
+    },
+    headerRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+    },
+    headerActions: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
     },
     backButton: {
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 8,
-        paddingVertical: 8,
-        paddingHorizontal: 12,
+        gap: 5,
+        paddingVertical: 6,
+        paddingHorizontal: 10,
         backgroundColor: 'rgba(255, 255, 255, 0.1)',
-        borderRadius: 20,
-        alignSelf: 'flex-start',
-        marginBottom: 24,
+        borderRadius: 16,
     },
     backText: {
-        fontSize: 14,
+        fontSize: 12,
         fontWeight: '500',
         color: '#94A3B8',
     },
     moodSection: {
-        marginBottom: 16,
+        flex: 1,
+        alignItems: 'center',
     },
     moodLabel: {
-        fontSize: 12,
+        fontSize: 9,
         fontWeight: '700',
-        color: 'rgba(255, 255, 255, 0.6)',
+        color: 'rgba(255, 255, 255, 0.5)',
         textTransform: 'uppercase',
         letterSpacing: 1,
-        marginBottom: 8,
     },
     moodText: {
-        fontSize: 36,
-        fontWeight: '900',
+        fontSize: 20,
+        fontWeight: '800',
         color: '#FFFFFF',
+        lineHeight: 24,
     },
     tabIcon: {
-        position: 'absolute',
-        top: 80,
-        right: 32,
-        padding: 12,
+        padding: 7,
         backgroundColor: 'rgba(255, 255, 255, 0.1)',
-        borderRadius: 16,
+        borderRadius: 10,
         borderWidth: 1,
-        borderColor: 'rgba(255, 255, 255, 0.1)',
+        borderColor: 'rgba(255, 255, 255, 0.08)',
     },
     divider: {
         height: 1,
-        backgroundColor: 'rgba(255, 255, 255, 0.1)',
-        marginVertical: 8,
+        backgroundColor: 'rgba(255, 255, 255, 0.08)',
+        marginTop: 8,
+        marginBottom: 4,
     },
     statusRow: {
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
-        marginTop: 12,
+        paddingHorizontal: 2,
+        paddingBottom: 4,
     },
     description: {
         fontSize: 14,
@@ -593,7 +682,7 @@ const styles = StyleSheet.create({
     content: {
         padding: 16,
         gap: 16,
-        paddingBottom: 100,
+        paddingBottom: 24,
     },
     itemCard: {
         padding: 12,
@@ -628,19 +717,14 @@ const styles = StyleSheet.create({
         color: '#94A3B8',
     },
     playButton: {
-        width: 40,
-        height: 40,
-        borderRadius: 20,
+        width: 38,
+        height: 38,
+        borderRadius: 19,
         backgroundColor: '#1E293B',
         borderWidth: 1,
         borderColor: '#334155',
         justifyContent: 'center',
         alignItems: 'center',
-    },
-    playIcon: {
-        color: '#60A5FA',
-        fontSize: 14,
-        marginLeft: 2,
     },
     // Movie card styles
     movieCard: {
@@ -749,11 +833,20 @@ const styles = StyleSheet.create({
         lineHeight: 18,
         marginTop: 2,
     },
-    trailerSection: {
-        marginTop: 16,
+    movieTapHint: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 6,
+        marginTop: 10,
+        paddingTop: 10,
         borderTopWidth: 1,
         borderTopColor: 'rgba(255, 255, 255, 0.05)',
-        paddingTop: 16,
+    },
+    movieTapHintText: {
+        fontSize: 11,
+        color: '#475569',
+        fontWeight: '500',
     },
     watchTrailerBtn: {
         flexDirection: 'row',
@@ -773,6 +866,7 @@ const styles = StyleSheet.create({
         backgroundColor: '#EF4444',
         justifyContent: 'center',
         alignItems: 'center',
+        overflow: 'hidden',
     },
     watchTrailerText: {
         fontSize: 14,
@@ -785,37 +879,134 @@ const styles = StyleSheet.create({
         borderRadius: 12,
         overflow: 'hidden',
     },
-    closeTrailerBtn: {
+    // Modal styles
+    modalOverlay: {
+        flex: 1,
+        justifyContent: 'flex-end',
+        backgroundColor: 'rgba(0,0,0,0.65)',
+    },
+    modalBackdrop: {
+        position: 'absolute',
+        top: 0, left: 0, right: 0, bottom: 0,
+    },
+    modalSheet: {
+        backgroundColor: '#0B1120',
+        borderTopLeftRadius: 28,
+        borderTopRightRadius: 28,
+        maxHeight: SCREEN_HEIGHT * 0.88,
+        overflow: 'hidden',
+    },
+    modalPosterWrap: {
+        width: '100%',
+        height: 230,
+    },
+    modalPosterImg: {
+        width: '100%',
+        height: '100%',
+    },
+    modalPosterGradient: {
+        position: 'absolute',
+        left: 0, right: 0, bottom: 0,
+        height: 150,
+    },
+    modalCloseBtn: {
+        position: 'absolute',
+        top: 14,
+        right: 14,
+        width: 34,
+        height: 34,
+        borderRadius: 17,
+        backgroundColor: 'rgba(0,0,0,0.55)',
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    modalPosterTitleWrap: {
+        position: 'absolute',
+        bottom: 14,
+        left: 16,
+        right: 56,
+    },
+    modalPosterTitle: {
+        fontSize: 22,
+        fontWeight: '800',
+        color: '#FFFFFF',
+        lineHeight: 28,
+        textShadowColor: 'rgba(0,0,0,0.9)',
+        textShadowOffset: { width: 0, height: 1 },
+        textShadowRadius: 8,
+    },
+    modalContent: {
+        padding: 16,
+    },
+    modalMetaRow: {
         flexDirection: 'row',
         alignItems: 'center',
-        justifyContent: 'center',
-        gap: 8,
-        marginTop: 12,
-        paddingVertical: 10,
+        gap: 10,
+        marginBottom: 8,
+        flexWrap: 'wrap',
     },
-    closeTrailerText: {
+    modalFavBtn: {
+        padding: 6,
+    },
+    modalStarsRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginBottom: 4,
+    },
+    modalRatingLabel: {
         fontSize: 13,
-        fontWeight: '600',
         color: '#94A3B8',
+        fontWeight: '500',
+        marginLeft: 4,
+    },
+    modalDivider: {
+        height: 1,
+        backgroundColor: 'rgba(255,255,255,0.07)',
+        marginVertical: 16,
+    },
+    modalSectionLabel: {
+        fontSize: 11,
+        fontWeight: '700',
+        color: 'rgba(255,255,255,0.45)',
+        textTransform: 'uppercase',
+        letterSpacing: 1,
+        marginBottom: 10,
+    },
+    modalSynopsis: {
+        fontSize: 14,
+        color: '#CBD5E1',
+        lineHeight: 22,
+    },
+    trailerLoadingBox: {
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingVertical: 24,
+        backgroundColor: 'rgba(255,255,255,0.04)',
+        borderRadius: 12,
+        marginBottom: 4,
+    },
+    trailerLoadingText: {
+        fontSize: 14,
+        color: '#94A3B8',
+        fontWeight: '500',
     },
     bottomActions: {
-        position: 'absolute',
-        bottom: 0,
-        left: 0,
-        right: 0,
         flexDirection: 'row',
-        padding: 16,
-        gap: 16,
+        alignItems: 'center',
+        paddingHorizontal: 12,
+        paddingVertical: 8,
+        gap: 10,
         borderTopWidth: 1,
         borderTopColor: 'rgba(255, 255, 255, 0.05)',
-        borderTopLeftRadius: 24,
-        borderTopRightRadius: 24,
+        borderTopLeftRadius: 20,
+        borderTopRightRadius: 20,
     },
     changeMoodBtn: {
         flex: 1,
-        padding: 12,
+        paddingHorizontal: 8,
+        paddingVertical: 8,
         alignItems: 'center',
-        gap: 6,
+        gap: 4,
     },
     changeMoodText: {
         fontSize: 10,
@@ -834,7 +1025,8 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'center',
         gap: 8,
-        padding: 12,
+        paddingHorizontal: 12,
+        paddingVertical: 9,
     },
     exploreBtnText: {
         fontSize: 14,
