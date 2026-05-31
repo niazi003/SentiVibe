@@ -58,12 +58,12 @@ export async function ensureAndroidMicPermission(): Promise<boolean> {
     }
     const result = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO, {
         title: 'Microphone',
-        message: 'SentiVibe records a short clip to estimate mood from your voice.',
+        message: 'SentiVibe records your voice to transcribe what you say into text for the AI chat.',
         buttonPositive: 'Allow',
         buttonNegative: 'Cancel',
     });
     if (result !== PermissionsAndroid.RESULTS.GRANTED) {
-        Alert.alert('Microphone blocked', 'Enable microphone permission in Settings to use voice detection.');
+        Alert.alert('Microphone blocked', 'Enable microphone permission in Settings to use voice input.');
         return false;
     }
     return true;

@@ -5,6 +5,7 @@ const {
   handleDetectText,
   handleDetectFace,
   handleDetectVoice,
+  handleTranscribe,
 } = require('../controllers/detectController');
 
 const voiceUpload = multer({
@@ -15,5 +16,6 @@ const voiceUpload = multer({
 router.post('/text', handleDetectText);
 router.post('/face', handleDetectFace);
 router.post('/voice', voiceUpload.single('audio'), handleDetectVoice);
+router.post('/transcribe', voiceUpload.single('audio'), handleTranscribe);
 
 module.exports = router;

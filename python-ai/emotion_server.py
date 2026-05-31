@@ -472,6 +472,8 @@ def detect_face():
 
 @app.route("/detect-voice", methods=["POST"])
 def detect_voice():
+    """Legacy endpoint — emotion from voice (Whisper STT → text emotion → tone fallback).
+    Kept for backward compatibility. New code should prefer /transcribe."""
     try:
         file = request.files.get("audio")
         if not file:
@@ -488,6 +490,45 @@ def detect_voice():
         if result.get("source"):
             payload["source"] = result["source"]
         return jsonify(payload)
+    except ValueError as ve:
+        return jsonify({"error": str(ve)}), 400
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/transcribe", methods=["POST"])
+def transcribe():
+    """
+    Pure speech-to-text endpoint using Distil-Whisper.
+    No emotion analysis — just returns what the user said as text.
+
+    Input : multipart/form-data with field 'audio' (WAV / M4A / AAC / etc.)
+    Output: { "transcript": str }  — or { "error": str } on failure
+    """
+    try:
+        file = request.files.get("audio")
+        if not file:
+            return jsonify({"error": "audio file required (field name: audio)"}), 400
+
+        if not USE_STT_MODEL or stt_model is None:
+            return jsonify({"error": "Speech-to-text model is not loaded on this server."}), 503
+
+        audio, sr = decode_uploaded_audio(file)
+        audio_16k = resample_numpy(audio, sr, 16000)
+
+        result = stt_model({"array": audio_16k.astype("float32"), "sampling_rate": 16000})
+        if isinstance(result, dict):
+            transcript = (result.get("text") or "").strip()
+        else:
+            transcript = str(result).strip()
+
+        if not transcript:
+            return jsonify({"error": "Could not detect any speech. Please speak clearly and try again."}), 400
+
+        return jsonify({"transcript": transcript})
+
     except ValueError as ve:
         return jsonify({"error": str(ve)}), 400
     except Exception as e:

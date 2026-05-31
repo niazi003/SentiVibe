@@ -13,7 +13,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/Feather';
 import { NavigationProp, RootStackParamList } from '../types';
-import { detectTextEmotion, detectFaceEmotion, detectVoiceEmotion } from '../services/api';
+import { detectTextEmotion, detectFaceEmotion, transcribeVoice } from '../services/api';
 import { mapDetectorEmotionToAppLabel } from '../utils/emotionLabels';
 import {
     captureFaceFromCamera,
@@ -106,15 +106,16 @@ export const DetectionScreen: React.FC = () => {
     const runVoicePipeline = useCallback(
         async (localPath: string) => {
             setPhase('analyzing');
-            setStatus('Listening to what you said...');
-            setProgress(35);
+            setStatus('Transcribing your voice...');
+            setProgress(30);
             const uri = toFileUri(localPath);
             const { fileName, mimeType } = guessVoiceUploadMeta(localPath);
-            const result = await detectVoiceEmotion(uri, fileName, mimeType);
+            const result = await transcribeVoice(uri, fileName, mimeType);
             setProgress(100);
-            goToChatWithEmotion(result.emotion);
+            // Navigate to Chatbot with the transcript so it goes straight into the AI chat
+            navigation.navigate('Chatbot', { voiceTranscript: result.transcript });
         },
-        [goToChatWithEmotion]
+        [navigation]
     );
 
     useEffect(() => {
@@ -250,9 +251,9 @@ export const DetectionScreen: React.FC = () => {
 
             {mode === 'voice' && phase === 'pick' && (
                 <View style={styles.choiceBlock}>
-                    <Text style={styles.choiceTitle}>Voice mood</Text>
+                    <Text style={styles.choiceTitle}>Speak to Vibe</Text>
                     <Text style={styles.choiceSubtitle}>
-                        Tap record, speak for a few seconds, then tap stop to analyze.
+                        Tap record, say how you feel in your own words, then tap stop. Vibe will read what you said and respond.
                     </Text>
                     <TouchableOpacity
                         style={[styles.recordBtn, isRecording && styles.recordBtnActive]}

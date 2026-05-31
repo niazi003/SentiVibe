@@ -369,6 +369,72 @@ export async function detectVoiceEmotion(
   }
 }
 
+// ─────────────────────────────────────────────────────────────
+// SPEECH-TO-TEXT  (voice → text → chatbot)
+// ─────────────────────────────────────────────────────────────
+
+export interface TranscribeResponse {
+  transcript: string;
+}
+
+/**
+ * Upload a short audio recording and get back the spoken words as plain text.
+ * The transcript is NOT emotion-analysed here — it is fed directly into the chatbot.
+ * Routes through Node.js → Python Emotion Service (Distil-Whisper /transcribe).
+ */
+export async function transcribeVoice(
+  fileUri: string,
+  fileName: string,
+  mimeType: string
+): Promise<TranscribeResponse> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), VOICE_DETECT_TIMEOUT_MS);
+
+  const form = new FormData();
+  try {
+    const fileRes = await fetch(fileUri);
+    const blob = await fileRes.blob();
+    if (blob.size > 64) {
+      (form as FormData & { append(name: string, value: Blob, fileName?: string): void }).append(
+        'audio',
+        blob,
+        fileName
+      );
+    } else {
+      form.append('audio', { uri: fileUri, name: fileName, type: mimeType } as unknown as Blob);
+    }
+  } catch {
+    form.append('audio', { uri: fileUri, name: fileName, type: mimeType } as unknown as Blob);
+  }
+
+  try {
+    const response = await fetch(`${BASE_URL}/detect/transcribe`, {
+      method: 'POST',
+      body: form,
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      const errorData = (await response.json().catch(() => ({}))) as {
+        error?: string;
+        message?: string;
+      };
+      throw new Error(errorData.message || errorData.error || `HTTP ${response.status}`);
+    }
+
+    return await response.json();
+  } catch (error: unknown) {
+    clearTimeout(timeoutId);
+    const err = error as { name?: string };
+    if (err?.name === 'AbortError') {
+      throw new Error('Transcription timed out. Please try again.');
+    }
+    throw error;
+  }
+}
+
 const MOVIE_CACHE_PREFIX = 'sentivibe_movie_recommendations_';
 
 /**

@@ -54,40 +54,96 @@ export const ChatbotScreen: React.FC = () => {
         }
     }, [params?.reset]);
 
-    // Handle detection results
+    const triggerMoodResult = (emotionStr: string, source: string) => {
+        setDetectedMood(emotionStr);
+        saveMoodToFirestore(emotionStr, source as any);
+
+        const emojiMap: Record<string, string> = {
+            Happy: '😊', Sad: '😢', Angry: '😠', Calm: '😌', Anxious: '😰',
+            Excited: '🤩', Lonely: '😔', Focused: '🎯', Romantic: '💕', Neutral: '😐'
+        };
+        const emotionEmoji = emojiMap[emotionStr] || '🎭';
+
+        const resultMsg: ChatMessage = {
+            id: Date.now() + 10,
+            text: `I've analyzed your input. You seem to be feeling ${emotionStr} ${emotionEmoji}.`,
+            sender: 'bot',
+            isResult: true,
+            showFeedback: true
+        };
+        const questionMsg: ChatMessage = {
+            id: Date.now() + 11,
+            text: `What would you like to do now?`,
+            sender: 'bot',
+            isChoice: true
+        };
+
+        setChatHistory(prev => [...prev, resultMsg]);
+
+        setTimeout(() => {
+            setChatHistory(prev => [...prev, questionMsg]);
+        }, 800);
+    };
+
+    // Handle detection results from Camera/Image picker
     useEffect(() => {
         if (params?.detectedEmotion) {
+            // we only show the card if detectedMood wasn't already that, or if backToChoices is set.
             if (detectedMood !== params.detectedEmotion || params.backToChoices) {
-                setDetectedMood(params.detectedEmotion);
-                saveMoodToFirestore(params.detectedEmotion, 'camera');
-                const emojiMap: Record<string, string> = {
-                    Happy: '😊', Sad: '😢', Angry: '😠', Calm: '😌', Anxious: '😰',
-                    Excited: '🤩', Lonely: '😔', Focused: '🎯', Romantic: '💕', Neutral: '😐'
-                };
-                const emotionEmoji = emojiMap[params.detectedEmotion] || '🎭';
-
-                const resultMsg: ChatMessage = {
-                    id: Date.now(),
-                    text: `I've analyzed your input. You seem to be feeling ${params.detectedEmotion} ${emotionEmoji}.`,
-                    sender: 'bot',
-                    isResult: true,
-                    showFeedback: true
-                };
-                const questionMsg: ChatMessage = {
-                    id: Date.now() + 1,
-                    text: `What would you like to do now?`,
-                    sender: 'bot',
-                    isChoice: true
-                };
-
-                setChatHistory(prev => [...prev, resultMsg]);
-
-                setTimeout(() => {
-                    setChatHistory(prev => [...prev, questionMsg]);
-                }, 800);
+                triggerMoodResult(params.detectedEmotion, 'camera');
+                
+                // Clear backToChoices so we don't end in a loop if the param stays there
+                if (params.backToChoices) {
+                    navigation.setParams({ backToChoices: false });
+                }
             }
         }
     }, [params?.detectedEmotion, params?.backToChoices]);
+
+    // Handle voice transcript from DetectionScreen (speech-to-text → chatbot)
+    useEffect(() => {
+        const transcript = params?.voiceTranscript?.trim();
+        if (!transcript || isLoading) return;
+
+        // Show the transcript as a user message immediately
+        const userMsg: ChatMessage = { id: Date.now(), text: transcript, sender: 'user' };
+        const typingMsg: ChatMessage = { id: Date.now() + 1, text: '...', sender: 'bot' };
+        setChatHistory(prev => [...prev, userMsg, typingMsg]);
+        setIsLoading(true);
+
+        const userId = userData?.email || userData?.name || 'default_user';
+        sendChatMessage(userId, transcript)
+            .then(aiResponse => {
+                setChatHistory(prev => {
+                    const filtered = prev.filter(m => m.id !== typingMsg.id);
+                    const replyMsg: ChatMessage = {
+                        id: Date.now() + 2,
+                        text: aiResponse.reply,
+                        sender: 'bot',
+                    };
+                    return [...filtered, replyMsg];
+                });
+                if (aiResponse.detectedEmotion && aiResponse.detectedEmotion !== 'neutral') {
+                    const emotion =
+                        aiResponse.detectedEmotion.charAt(0).toUpperCase() +
+                        aiResponse.detectedEmotion.slice(1);
+                    setTimeout(() => triggerMoodResult(emotion, 'chat'), 500);
+                }
+            })
+            .catch(() => {
+                setChatHistory(prev => {
+                    const filtered = prev.filter(m => m.id !== typingMsg.id);
+                    const errMsg: ChatMessage = {
+                        id: Date.now() + 2,
+                        text: "I'm having a little trouble right now — I still heard you. Try sending it as a message below.",
+                        sender: 'bot',
+                    };
+                    return [...filtered, errMsg];
+                });
+            })
+            .finally(() => setIsLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [params?.voiceTranscript]);
 
     const handleSend = async () => {
         if (!input.trim() || isLoading) return;
@@ -121,8 +177,7 @@ export const ChatbotScreen: React.FC = () => {
             // Use the AI-detected emotion to show mood result
             if (aiResponse.detectedEmotion && aiResponse.detectedEmotion !== 'neutral') {
                 const emotion = aiResponse.detectedEmotion.charAt(0).toUpperCase() + aiResponse.detectedEmotion.slice(1);
-                navigation.setParams({ detectedEmotion: emotion });
-                saveMoodToFirestore(emotion, 'chat');
+                setTimeout(() => triggerMoodResult(emotion, 'chat'), 500);
             }
         } catch (error: any) {
             console.warn('[Chat] AI error, falling back to text detection:', error.message);
@@ -140,8 +195,7 @@ export const ChatbotScreen: React.FC = () => {
                     return [...filtered, fallbackReply];
                 });
                 const emotion = detection.emotion.charAt(0).toUpperCase() + detection.emotion.slice(1);
-                navigation.setParams({ detectedEmotion: emotion });
-                saveMoodToFirestore(emotion, 'text');
+                setTimeout(() => triggerMoodResult(emotion, 'text'), 500);
             } catch {
                 // Final fallback: local heuristic
                 setChatHistory(prev => {

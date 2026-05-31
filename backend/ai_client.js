@@ -135,6 +135,43 @@ async function detectVoiceEmotion(buffer, originalname, mimetype) {
 }
 
 /**
+ * Transcribe speech audio to plain text using Python /transcribe (Distil-Whisper).
+ * No emotion scoring — returns only what the user said.
+ * @param {Buffer} buffer     - raw audio bytes
+ * @param {string} originalname
+ * @param {string} mimetype
+ * @returns {Promise<{ transcript: string }>}
+ */
+async function transcribeVoice(buffer, originalname, mimetype) {
+  try {
+    const form = new FormData();
+    form.append('audio', buffer, {
+      filename: originalname || 'clip.m4a',
+      contentType: mimetype || 'application/octet-stream',
+    });
+    const response = await axios.post(`${EMOTION_SERVICE_URL}/transcribe`, form, {
+      headers: form.getHeaders(),
+      timeout: 90_000,
+      maxBodyLength: Infinity,
+      maxContentLength: Infinity,
+    });
+    return response.data; // { transcript: string }
+  } catch (err) {
+    if (err.code === 'ECONNREFUSED') {
+      throw new Error('Emotion detection service is not running. Start it with: python emotion_server.py');
+    }
+    const data = err.response?.data;
+    const fromPython =
+      data && typeof data === 'object'
+        ? data.error || data.message
+        : typeof data === 'string'
+          ? data
+          : null;
+    throw new Error(fromPython || err.message || 'Transcription request failed');
+  }
+}
+
+/**
  * Mood-based movie recommendations (Python TF-IDF engine).
  * @param {string} mood - app mood label (e.g. Sad, Happy)
  * @param {string} [userText] - optional chat context
@@ -180,5 +217,6 @@ module.exports = {
   detectTextEmotion,
   detectFaceEmotion,
   detectVoiceEmotion,
+  transcribeVoice,
   recommendMovies,
 };

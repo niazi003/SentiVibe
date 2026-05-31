@@ -79,4 +79,32 @@ async function handleDetectVoice(req, res) {
   }
 }
 
-module.exports = { handleDetectText, handleDetectFace, handleDetectVoice };
+/**
+ * POST /api/detect/transcribe
+ * Multipart field name: audio
+ * Returns { transcript: string } — pure speech-to-text, no emotion analysis.
+ */
+async function handleTranscribe(req, res) {
+  const file = req.file;
+
+  if (!file || !file.buffer?.length) {
+    return res.status(400).json({ error: 'audio file is required (multipart field: audio).' });
+  }
+
+  try {
+    const result = await aiClient.transcribeVoice(
+      file.buffer,
+      file.originalname,
+      file.mimetype
+    );
+    return res.json(result); // { transcript: string }
+  } catch (err) {
+    console.error('[detectController] Transcription error:', err.message);
+    return res.status(502).json({
+      error: 'Transcription service unavailable',
+      message: err.message,
+    });
+  }
+}
+
+module.exports = { handleDetectText, handleDetectFace, handleDetectVoice, handleTranscribe };
