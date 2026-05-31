@@ -13,7 +13,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/Feather';
 import { NavigationProp, RootStackParamList } from '../types';
-import { detectTextEmotion, detectFaceEmotion, transcribeVoice } from '../services/api';
+import { detectFaceEmotion, transcribeVoice } from '../services/api';
 import { mapDetectorEmotionToAppLabel } from '../utils/emotionLabels';
 import {
     captureFaceFromCamera,
@@ -35,7 +35,7 @@ export const DetectionScreen: React.FC = () => {
     const route = useRoute<DetectionRouteProp>();
     const { mode } = route.params;
 
-    const [phase, setPhase] = useState<Phase>(mode === 'text' ? 'analyzing' : 'pick');
+    const [phase, setPhase] = useState<Phase>('pick');
     const [status, setStatus] = useState('Initializing...');
     const [progress, setProgress] = useState(0);
     const [isRecording, setIsRecording] = useState(false);
@@ -82,15 +82,6 @@ export const DetectionScreen: React.FC = () => {
         [navigation]
     );
 
-    const runTextFallback = useCallback(async () => {
-        setPhase('analyzing');
-        setStatus('Analyzing text...');
-        setProgress(40);
-        const result = await detectTextEmotion('analyzing text input');
-        setProgress(100);
-        goToChatWithEmotion(result.emotion);
-    }, [goToChatWithEmotion]);
-
     const runFacePipeline = useCallback(
         async (imageBase64: string) => {
             setPhase('analyzing');
@@ -117,27 +108,6 @@ export const DetectionScreen: React.FC = () => {
         },
         [navigation]
     );
-
-    useEffect(() => {
-        if (mode !== 'text') {
-            return;
-        }
-        let cancelled = false;
-        (async () => {
-            try {
-                if (cancelled) return;
-                await runTextFallback();
-            } catch (e) {
-                console.error('[Detection] text:', e);
-                if (!cancelled) {
-                    navigation.navigate('EmotionError');
-                }
-            }
-        })();
-        return () => {
-            cancelled = true;
-        };
-    }, [mode, navigation, runTextFallback]);
 
     const onTakePhoto = useCallback(async () => {
         try {
@@ -219,11 +189,11 @@ export const DetectionScreen: React.FC = () => {
         }
     };
 
-    const showAnalyzing = phase === 'analyzing' || mode === 'text';
+    const showAnalyzing = phase === 'analyzing';
 
     return (
         <SafeAreaView style={styles.container} edges={['top']}>
-            {mode !== 'text' && phase === 'pick' && (
+            {phase === 'pick' && (
                 <TouchableOpacity style={styles.backRow} onPress={() => navigation.goBack()} hitSlop={12}>
                     <Icon name="chevron-left" size={28} color="#94A3B8" />
                     <Text style={styles.backLabel}>Back</Text>

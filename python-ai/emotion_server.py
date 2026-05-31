@@ -5,7 +5,8 @@ SentiVibe Emotion Detection Server – runs on port 5001.
 Endpoints:
   POST /detect-text   — Emotion from text (DistilRoBERTa)
   POST /detect-face   — Emotion from camera image (DeepFace CNN)
-  POST /detect-voice  — Emotion from spoken words (Whisper STT → DistilRoBERTa), tone as fallback
+  POST /transcribe    — Pure speech-to-text (Distil-Whisper)
+  GET  /recommend-movies — Movies recommender
   GET  /health        — Health check
 
 Dependencies:
@@ -42,22 +43,6 @@ PORT = 5001
 
 TEXT_MODEL_ID = "j-hartmann/emotion-english-distilroberta-base"
 STT_MODEL_ID  = "distil-whisper/distil-small.en"
-TONE_MODEL_ID = "HaniaRuby/speech-emotion-recognition-wav2vec2"
-
-# Explicit self-reported mood phrases — checked on transcript before the ML text classifier.
-SPOKEN_MOOD_PHRASES: list[tuple[list[str], str]] = [
-    (["motivated", "motivation", "pumped up", "energized", "determined", "inspired"], "joy"),
-    (["not feeling good", "don't feel good", "do not feel good", "feel bad", "feel awful", "feel terrible", "feel horrible", "not well", "unwell"], "sadness"),
-    (["i am sad", "i'm sad", "feeling sad", "so sad", "very sad", "depressed", "down today"], "sadness"),
-    (["i am happy", "i'm happy", "feeling happy", "so happy", "great mood", "feel great", "feel amazing"], "joy"),
-    (["anxious", "worried", "stressed out", "nervous", "overwhelmed", "panicking"], "fear"),
-    (["angry", "furious", "mad at", "so mad", "irritated", "frustrated"], "anger"),
-    (["lonely", "feel alone", "feeling alone", "miss someone"], "lonely"),
-    (["calm", "peaceful", "relaxed", "at ease", "chill"], "calm"),
-    (["focused", "concentrating", "in the zone"], "focused"),
-    (["romantic", "in love", "missing my partner"], "joy"),
-]
-
 @app.route("/", methods=["GET"])
 def index():
     return f"SentiVibe Emotion Detection API is active on port {PORT}."
@@ -71,7 +56,6 @@ def health():
             "text": TEXT_MODEL_ID,
             "face": "DeepFace (lazy-loaded)",
             "speech_to_text": STT_MODEL_ID if USE_STT_MODEL else None,
-            "voice_tone_fallback": TONE_MODEL_ID if USE_TONE_MODEL else None,
         },
         "movies_recommender": MOVIES_READY,
         "ffmpeg_cli": bool(_resolve_ffmpeg_executable()),
@@ -99,15 +83,7 @@ except Exception as e:
     stt_model = None
     print(f"Speech-to-text model unavailable ({e}).")
 
-print("Loading voice tone model (secondary fallback)...")
-try:
-    tone_model = pipeline("audio-classification", model=TONE_MODEL_ID)
-    USE_TONE_MODEL = True
-    print("Voice tone model loaded successfully.")
-except Exception as e:
-    USE_TONE_MODEL = False
-    tone_model = None
-    print(f"Voice tone model unavailable ({e}).")
+
 
 print("Loading movie recommender (TF-IDF)...")
 try:
@@ -271,29 +247,6 @@ def decode_uploaded_audio(file_storage):
     return audio, int(sr)
 
 
-def heuristic_emotion(audio, sr):
-    """Multi-feature fallback — RMS energy + ZCR + spectral centroid."""
-    peak = np.max(np.abs(audio))
-    if peak < 1e-6:
-        return "silence"
-    audio = audio / peak   # normalise so mic volume doesn't matter
-
-    rms = float(np.sqrt(np.mean(audio ** 2)))
-    zcr = float(np.mean(np.abs(np.diff(np.sign(audio)))) / 2)
-
-    fft_mag = np.abs(np.fft.rfft(audio))
-    freqs   = np.fft.rfftfreq(len(audio), d=1.0 / sr)
-    total   = np.sum(fft_mag) + 1e-10
-    sc      = float(np.sum(freqs * fft_mag) / total)  # spectral centroid Hz
-
-    if   rms > 0.45 and zcr > 0.12:   return "angry"
-    elif rms > 0.40 and sc  > 2200:   return "happy"
-    elif rms > 0.30 and sc  > 1600:   return "excited"
-    elif rms < 0.15 and sc  < 900:    return "sad"
-    elif rms < 0.20:                   return "calm"
-    else:                              return "neutral"
-
-
 def _normalize_model_label(raw_label: str) -> str:
     """Strip HuggingFace label prefixes like LABEL_0 and lower-case."""
     label = (raw_label or "").strip()
@@ -309,118 +262,6 @@ def _emotion_from_text_content(text: str) -> tuple[str, float]:
         raise ValueError("empty text for emotion classification")
     result = text_model(cleaned)[0]
     return _normalize_model_label(result["label"]), float(result["score"])
-
-
-def _keyword_emotion_from_transcript(transcript: str) -> tuple[str, float] | None:
-    """Match explicit mood phrases people say out loud (e.g. 'I am sad', 'not feeling good')."""
-    lower = transcript.lower().strip()
-    if not lower:
-        return None
-    for phrases, label in SPOKEN_MOOD_PHRASES:
-        if any(phrase in lower for phrase in phrases):
-            return label, 0.92
-    return None
-
-
-def _transcribe_audio(audio_16k: np.ndarray) -> str:
-    """Turn speech audio into text — primary signal for voice mood detection."""
-    if not USE_STT_MODEL or stt_model is None:
-        return ""
-    result = stt_model({"array": audio_16k.astype(np.float32), "sampling_rate": 16000})
-    if isinstance(result, dict):
-        return (result.get("text") or "").strip()
-    return str(result).strip()
-
-
-def _emotion_from_voice_pipeline(audio: np.ndarray, sr: int) -> dict:
-    """
-    Voice mood detection priority:
-      1. What the user said (Whisper transcript + phrase / text classifier)
-      2. How they said it (tone model)
-      3. Heuristic audio features
-    """
-    audio_16k = resample_numpy(audio, sr, 16000)
-    transcript = _transcribe_audio(audio_16k)
-
-    tone_emotion = None
-    tone_confidence = None
-    if USE_TONE_MODEL:
-        try:
-            tone_emotion, tone_confidence = _emotion_from_tone_model(audio_16k)
-        except Exception as tone_err:
-            print(f"[detect-voice] tone model skipped: {tone_err!r}")
-
-    if transcript:
-        keyword_hit = _keyword_emotion_from_transcript(transcript)
-        if keyword_hit:
-            emotion, confidence = keyword_hit
-            return {
-                "emotion": emotion,
-                "confidence": confidence,
-                "transcript": transcript,
-                "source": "speech_phrase",
-                "tone_emotion": tone_emotion,
-            }
-
-        try:
-            emotion, confidence = _emotion_from_text_content(transcript)
-            if confidence >= 0.20:
-                return {
-                    "emotion": emotion,
-                    "confidence": confidence,
-                    "transcript": transcript,
-                    "source": "speech_text",
-                    "tone_emotion": tone_emotion,
-                }
-        except Exception as text_err:
-            print(f"[detect-voice] text emotion from transcript failed: {text_err!r}")
-
-    if tone_emotion:
-        return {
-            "emotion": tone_emotion,
-            "confidence": tone_confidence,
-            "transcript": transcript or None,
-            "source": "tone",
-        }
-
-    return {
-        "emotion": heuristic_emotion(audio, sr),
-        "transcript": transcript or None,
-        "source": "heuristic",
-    }
-
-
-
-
-
-def _emotion_from_tone_model(audio_16k: np.ndarray) -> tuple[str, float]:
-    """Secondary: vocal tone / prosody via Wav2Vec2 SER model."""
-    min_samples = 16000  # 1 s @ 16 kHz
-    if len(audio_16k) < min_samples:
-        audio_16k = np.pad(audio_16k.astype(np.float32), (0, min_samples - len(audio_16k)))
-
-    result = tone_model({"array": audio_16k, "sampling_rate": 16000}, top_k=3)
-    if not result:
-        raise ValueError("voice model returned empty result")
-
-    top = result[0]
-    if isinstance(top, dict):
-        label = _normalize_model_label(top.get("label") or top.get("class") or str(top))
-        score = float(top.get("score", 0.0))
-    else:
-        label = _normalize_model_label(str(top))
-        score = 0.0
-
-    if score < 0.30 and len(result) > 1:
-        for candidate in result:
-            if not isinstance(candidate, dict):
-                continue
-            cand_label = _normalize_model_label(candidate.get("label", ""))
-            cand_score = float(candidate.get("score", 0.0))
-            if cand_label != "neutral" and cand_score >= score * 0.85:
-                return cand_label, cand_score
-
-    return label, score
 
 
 # ── Routes ─────────────────────────────────────────────────────────────
@@ -464,34 +305,6 @@ def detect_face():
         # Explicit float() cast — DeepFace returns numpy.float32 which Flask cannot JSON-serialize.
         confidence = round(float(emotions[dominant]) / 100.0, 4)
         return jsonify({"emotion": dominant.lower(), "confidence": confidence})
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        return jsonify({"error": str(e)}), 500
-
-
-@app.route("/detect-voice", methods=["POST"])
-def detect_voice():
-    """Legacy endpoint — emotion from voice (Whisper STT → text emotion → tone fallback).
-    Kept for backward compatibility. New code should prefer /transcribe."""
-    try:
-        file = request.files.get("audio")
-        if not file:
-            return jsonify({"error": "audio file required (field name: audio)"}), 400
-
-        audio, sr = decode_uploaded_audio(file)
-        result = _emotion_from_voice_pipeline(audio, sr)
-
-        payload = {"emotion": result["emotion"]}
-        if result.get("confidence") is not None:
-            payload["confidence"] = result["confidence"]
-        if result.get("transcript"):
-            payload["transcript"] = result["transcript"]
-        if result.get("source"):
-            payload["source"] = result["source"]
-        return jsonify(payload)
-    except ValueError as ve:
-        return jsonify({"error": str(ve)}), 400
     except Exception as e:
         import traceback
         traceback.print_exc()

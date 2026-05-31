@@ -225,14 +225,6 @@ export interface FaceDetectionResponse {
   emotion: string;
 }
 
-export interface VoiceDetectionResponse {
-  emotion: string;
-  /** What the user said (when STT succeeded). */
-  transcript?: string;
-  /** speech_phrase | speech_text | tone | heuristic */
-  source?: string;
-  confidence?: number;
-}
 
 /**
  * Detect emotion from text input.
@@ -300,78 +292,12 @@ export async function detectFaceEmotion(imageBase64: string): Promise<FaceDetect
   }
 }
 
-const VOICE_DETECT_TIMEOUT_MS = 90_000;
-
-/**
- * Detect emotion from a short recorded audio clip (multipart upload).
- * Routes through Node.js → Python Emotion Service (Whisper STT → text emotion; tone is fallback).
- */
-export async function detectVoiceEmotion(
-  fileUri: string,
-  fileName: string,
-  mimeType: string
-): Promise<VoiceDetectionResponse> {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), VOICE_DETECT_TIMEOUT_MS);
-
-  const form = new FormData();
-  /** Prefer Blob: RN `{ uri, name, type }` multipart is sometimes dropped by Multer on the gateway. */
-  try {
-    const fileRes = await fetch(fileUri);
-    const blob = await fileRes.blob();
-    if (blob.size > 64) {
-      (form as FormData & { append(name: string, value: Blob, fileName?: string): void }).append(
-        'audio',
-        blob,
-        fileName
-      );
-    } else {
-      form.append('audio', {
-        uri: fileUri,
-        name: fileName,
-        type: mimeType,
-      } as unknown as Blob);
-    }
-  } catch {
-    form.append('audio', {
-      uri: fileUri,
-      name: fileName,
-      type: mimeType,
-    } as unknown as Blob);
-  }
-
-  try {
-    const response = await fetch(`${BASE_URL}/detect/voice`, {
-      method: 'POST',
-      body: form,
-      signal: controller.signal,
-    });
-
-    clearTimeout(timeoutId);
-
-    if (!response.ok) {
-      const errorData = (await response.json().catch(() => ({}))) as {
-        error?: string;
-        message?: string;
-      };
-      const detail = errorData.message || errorData.error || `HTTP ${response.status}`;
-      throw new Error(detail);
-    }
-
-    return await response.json();
-  } catch (error: unknown) {
-    clearTimeout(timeoutId);
-    const err = error as { name?: string };
-    if (err?.name === 'AbortError') {
-      throw new Error('Voice detection timed out.');
-    }
-    throw error;
-  }
-}
 
 // ─────────────────────────────────────────────────────────────
 // SPEECH-TO-TEXT  (voice → text → chatbot)
 // ─────────────────────────────────────────────────────────────
+
+const VOICE_DETECT_TIMEOUT_MS = 90_000;
 
 export interface TranscribeResponse {
   transcript: string;
