@@ -489,7 +489,6 @@ export const ResultsScreen: React.FC = () => {
                                                     {i <= fullStars ? '★' : (i === fullStars + 1 && hasHalf) ? '½' : '☆'}
                                                 </Text>
                                             ))}
-                                            <Text style={styles.modalRatingLabel}> {selectedMovie.rating!.toFixed(1)} / 10</Text>
                                         </View>
                                     );
                                 })()}
