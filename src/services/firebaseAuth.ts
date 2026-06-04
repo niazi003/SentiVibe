@@ -111,6 +111,28 @@ export async function getUserProfile(uid: string): Promise<FirebaseUserProfile |
   return { uid, ...doc.data() } as FirebaseUserProfile;
 }
 
+/**
+ * Subscribe to user profile updates from Firestore.
+ */
+export function subscribeUserProfile(
+  uid: string,
+  callback: (profile: FirebaseUserProfile | null) => void
+): () => void {
+  return firestore()
+    .collection('users')
+    .doc(uid)
+    .onSnapshot(
+      doc => {
+        if (!doc.exists) callback(null);
+        else callback({ uid, ...doc.data() } as FirebaseUserProfile);
+      },
+      error => {
+        console.warn('[Firestore] Profile sync error:', error);
+        callback(null);
+      }
+    );
+}
+
 // ─────────────────────────────────────────────────────────────
 // FRIENDLY ERROR MESSAGES
 // ─────────────────────────────────────────────────────────────

@@ -13,6 +13,7 @@ import {
   logOut as fbLogOut,
   onAuthStateChanged,
   getUserProfile,
+  subscribeUserProfile,
   getAuthErrorMessage,
   FirebaseUserProfile,
 } from '../services/firebaseAuth';
@@ -61,22 +62,37 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   // Listen to Firebase auth state changes (auto-login on app restart)
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(async (firebaseUser: FirebaseAuthTypes.User | null) => {
+    let profileUnsub: (() => void) | null = null;
+
+    const unsubscribe = onAuthStateChanged((firebaseUser: FirebaseAuthTypes.User | null) => {
+      // Clean up previous profile listener if it exists
+      if (profileUnsub) {
+        profileUnsub();
+        profileUnsub = null;
+      }
+
       if (firebaseUser) {
-        // Try to get full profile from Firestore
-        const profile = await getUserProfile(firebaseUser.uid).catch(() => null);
-        setUser({
-          uid: firebaseUser.uid,
-          name: profile?.name || firebaseUser.displayName || 'User',
-          email: firebaseUser.email || '',
+        // Subscribe to Firestore profile to get real-time name updates
+        profileUnsub = subscribeUserProfile(firebaseUser.uid, (profile) => {
+          setUser({
+            uid: firebaseUser.uid,
+            name: profile?.name || firebaseUser.displayName || 'User',
+            email: firebaseUser.email || '',
+          });
+          setLoading(false);
         });
       } else {
         setUser(null);
+        setLoading(false);
       }
-      setLoading(false);
     });
 
-    return unsubscribe;
+    return () => {
+      unsubscribe();
+      if (profileUnsub) {
+        profileUnsub();
+      }
+    };
   }, []);
 
   const signUp = async (name: string, email: string, password: string) => {
