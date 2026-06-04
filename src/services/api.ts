@@ -18,7 +18,7 @@ const BASE_URL = __DEV__
   : 'https://frugality-endocrine-probably.ngrok-free.dev/api'; // Replace with prod / ngrok URL
 
 const CACHE_KEY_PREFIX = 'sentivibe_recommendations_';
-const REQUEST_TIMEOUT = 15000; // 15 seconds
+const REQUEST_TIMEOUT = 45000; // 45 seconds - Spotify fallback APIs can take time
 const AI_TIMEOUT = 90000; // 90 seconds — LLM inference can be slow
 
 // ─────────────────────────────────────────────────────────────

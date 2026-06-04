@@ -10,6 +10,7 @@ import {
     ImageBackground,
     ActivityIndicator
 } from 'react-native';
+import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/Feather';
@@ -234,7 +235,12 @@ export const ChatbotScreen: React.FC = () => {
             resizeMode="cover"
         >
             <View style={styles.overlay} />
-            <SafeAreaView style={styles.container} edges={['top']}>
+            <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
+              <KeyboardAvoidingView
+                style={styles.keyboardView}
+                behavior="padding"
+                keyboardVerticalOffset={0}
+              >
                 {/* Header */}
                 <View style={styles.header}>
                     <View style={styles.headerLeft}>
@@ -374,6 +380,7 @@ export const ChatbotScreen: React.FC = () => {
                         </View>
                     </View>
                 </View>
+              </KeyboardAvoidingView>
             </SafeAreaView>
         </ImageBackground>
     );

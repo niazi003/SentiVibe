@@ -64,7 +64,7 @@ export const LoginScreen: React.FC = () => {
     };
 
     return (
-        <SafeAreaView style={styles.container} edges={['top']}>
+        <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
             <KeyboardAwareScrollView
                 contentContainerStyle={{ flexGrow: 1 }}
                 enableOnAndroid={true}
