@@ -165,15 +165,26 @@ async function ensureActiveDevice(): Promise<string | null> {
   return fallback;
 }
 
-export async function playTrack(spotifyId: string): Promise<boolean> {
+export async function playTrack(spotifyId: string, positionMs?: number): Promise<boolean> {
   try {
     const deviceId = await ensureActiveDevice();
     if (!deviceId) return false;
 
+    // Immediately silence the current track to prevent stale audio
+    // leaking while the new track buffers over a slow network.
+    await spotifyFetch(
+      `/me/player/pause?device_id=${encodeURIComponent(deviceId)}`,
+      { method: 'PUT' }
+    ).catch(() => {}); // best-effort; don't block if nothing is playing
+
     const uri = `spotify:track:${spotifyId}`;
+    const body: Record<string, any> = { uris: [uri] };
+    if (positionMs != null && positionMs > 0) {
+      body.position_ms = Math.floor(positionMs);
+    }
     const res = await spotifyFetch(`/me/player/play?device_id=${encodeURIComponent(deviceId)}`, {
       method: 'PUT',
-      body: JSON.stringify({ uris: [uri] }),
+      body: JSON.stringify(body),
     });
     return res.ok;
   } catch (e) {

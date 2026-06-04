@@ -56,7 +56,7 @@ function playerReducer(state: PlayerState, action: PlayerAction): PlayerState {
                 history: state.currentTrack
                     ? [...state.history, state.currentTrack]
                     : state.history,
-                isPlaying: true,
+                isPlaying: false,  // Don't claim playing until confirmed by Spotify/YT state poll
                 currentTime: 0,
                 duration: 0,
             };

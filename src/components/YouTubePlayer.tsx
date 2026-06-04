@@ -26,6 +26,7 @@ interface YouTubePlayerProps {
   height?: number;
   autoplay?: boolean;
   isPlaying?: boolean;
+  initialSeekSeconds?: number;
   onStateChange?: (state: string) => void;
   onProgress?: (currentTime: number, duration: number) => void;
   onError?: () => void;
@@ -40,6 +41,7 @@ export const YouTubePlayer = forwardRef<YouTubePlayerRef, YouTubePlayerProps>(({
   height = 200,
   autoplay = false,
   isPlaying = true,
+  initialSeekSeconds,
   onStateChange,
   onProgress,
   onError,
@@ -126,6 +128,11 @@ export const YouTubePlayer = forwardRef<YouTubePlayerRef, YouTubePlayerProps>(({
     isReadyRef.current = true;
     setIsLoading(false);
 
+    // Seek to handoff position from audio mode (if provided)
+    if (initialSeekSeconds && initialSeekSeconds > 0 && playerRef.current) {
+      playerRef.current.seekTo(initialSeekSeconds, true);
+    }
+
     // Force the correct play state now that player is ready
     // Brief false→true toggle ensures the library's useEffect fires
     if (isPlaying) {
@@ -139,7 +146,7 @@ export const YouTubePlayer = forwardRef<YouTubePlayerRef, YouTubePlayerProps>(({
     if (isPlaying) {
       startProgressTracking();
     }
-  }, [isPlaying, startProgressTracking]);
+  }, [isPlaying, startProgressTracking, initialSeekSeconds]);
 
   // Reset when videoId changes
   useEffect(() => {

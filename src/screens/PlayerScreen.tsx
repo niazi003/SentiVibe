@@ -215,13 +215,33 @@ export const PlayerScreen: React.FC = () => {
     }, [duration, trackWidth, isVideoMode]);
 
     /**
-     * Music mode: when track changes, drive playback via Spotify Remote.
+     * Music mode: when track changes OR mode toggles back from video,
+     * drive playback via Spotify Remote with proper cleanup.
+     *
+     * FIX: Pauses stale audio immediately, passes currentTime for
+     * seamless Video→Audio handoff, and aborts if track changes mid-fetch.
      */
     useEffect(() => {
         if (isVideoMode) return;
         const spotifyId = currentTrack?.spotifyId;
         if (!spotifyId) return;
-        spotifyPlayTrack(spotifyId);
+
+        let cancelled = false;
+
+        (async () => {
+            // Silence stale audio immediately to prevent race condition
+            await pausePlayback().catch(() => {});
+            if (cancelled) return; // Abort if track changed during pause
+
+            // Forward the current timestamp (from video mode) as start position
+            const seekMs = currentTime > 0 ? currentTime * 1000 : undefined;
+            await spotifyPlayTrack(spotifyId, seekMs);
+        })();
+
+        return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Note: currentTime intentionally excluded — we only want this to fire
+    // on track change or mode toggle, reading currentTime as a snapshot.
     }, [currentTrack?.id, currentTrack?.spotifyId, isVideoMode]);
 
     /**
@@ -435,6 +455,7 @@ export const PlayerScreen: React.FC = () => {
                             height={videoHeight}
                             autoplay={true}
                             isPlaying={isPlaying}
+                            initialSeekSeconds={currentTime}
                             onStateChange={handleStateChange}
                             onProgress={handleProgress}
                         />
@@ -513,7 +534,11 @@ export const PlayerScreen: React.FC = () => {
                     </View>
                 </View>
 
-                {/* Playback Controls — Always visible in both modes */}
+                {/* Playback Controls — Only in Music mode.
+                    YouTube's embedded player has native controls, so showing
+                    ours too is redundant. Hiding this does NOT break the
+                    global state machine — these are purely UI triggers. */}
+                {!isVideoMode && (
                 <View style={styles.controls}>
                     <TouchableOpacity>
                         <Icon name="shuffle" size={20} color="#94A3B8" />
@@ -552,6 +577,7 @@ export const PlayerScreen: React.FC = () => {
                         <Icon name="repeat" size={20} color="#94A3B8" />
                     </TouchableOpacity>
                 </View>
+                )}
 
                 {/* Queue Section */}
                 {queue.length > 0 && (
