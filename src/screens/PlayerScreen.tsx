@@ -22,6 +22,9 @@ import {
     TouchableOpacity,
     Image,
     Dimensions,
+    Alert,
+    Animated,
+    Easing,
 } from 'react-native';
 import { ScrollView } from 'react-native-gesture-handler';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -69,6 +72,88 @@ export const PlayerScreen: React.FC = () => {
     const screenWidth = Dimensions.get('window').width;
     const trackWidth = screenWidth - 48;
     const videoHeight = (screenWidth - 48) * (9 / 16);
+
+    // ── Pulsing animation for the play button when audio is playing ──
+    const pulseAnim = useRef(new Animated.Value(0)).current;
+
+    useEffect(() => {
+        if (isPlaying) {
+            const loop = Animated.loop(
+                Animated.sequence([
+                    Animated.timing(pulseAnim, {
+                        toValue: -6,
+                        duration: 400,
+                        easing: Easing.inOut(Easing.ease),
+                        useNativeDriver: true,
+                    }),
+                    Animated.timing(pulseAnim, {
+                        toValue: 0,
+                        duration: 400,
+                        easing: Easing.inOut(Easing.ease),
+                        useNativeDriver: true,
+                    }),
+                ])
+            );
+            loop.start();
+            return () => loop.stop();
+        } else {
+            pulseAnim.setValue(0);
+        }
+    }, [isPlaying, pulseAnim]);
+
+    /**
+     * Guard: If music is playing, prompt user to pause before switching to Video mode.
+     */
+    const handleSwitchToVideo = useCallback(() => {
+        if (isPlaying && !isVideoMode) {
+            Alert.alert(
+                '⏸  Pause Audio First',
+                'Music is currently playing. Would you like to pause it and switch to Video mode?',
+                [
+                    { text: 'Cancel', style: 'cancel' },
+                    {
+                        text: 'Pause & Switch',
+                        style: 'default',
+                        onPress: async () => {
+                            await pausePlayback();
+                            pause();
+                            setVideoMode(true);
+                        },
+                    },
+                ]
+            );
+        } else {
+            setVideoMode(true);
+        }
+    }, [isPlaying, isVideoMode, pause, setVideoMode]);
+
+    /**
+     * Guard: If music is playing, prompt user to pause before navigating back.
+     */
+    const handleGoBack = useCallback(() => {
+        if (isPlaying) {
+            Alert.alert(
+                '⏸  Pause Audio First',
+                'Music is still playing. Would you like to pause it before going back?',
+                [
+                    { text: 'Keep Playing', style: 'cancel', onPress: () => navigation.goBack() },
+                    {
+                        text: 'Pause & Go Back',
+                        style: 'default',
+                        onPress: async () => {
+                            if (!isVideoMode) {
+                                await pausePlayback();
+                            }
+                            pause();
+                            navigation.goBack();
+                        },
+                    },
+                ]
+            );
+        } else {
+            navigation.goBack();
+        }
+    }, [isPlaying, isVideoMode, pause, navigation]);
 
     // Get the videoId — either from the dedicated field or extracted from URL
     const videoId = currentTrack?.videoId ||
@@ -299,7 +384,7 @@ export const PlayerScreen: React.FC = () => {
             <View style={styles.header}>
                 <TouchableOpacity
                     style={styles.headerBtn}
-                    onPress={() => navigation.goBack()}
+                    onPress={handleGoBack}
                 >
                     <Icon name="chevron-down" size={28} color="#FFFFFF" style={ICON_STYLE} />
                 </TouchableOpacity>
@@ -315,7 +400,7 @@ export const PlayerScreen: React.FC = () => {
                         </TouchableOpacity>
                         <TouchableOpacity
                             style={[styles.modeBtn, isVideoMode && styles.modeBtnActive]}
-                            onPress={() => setVideoMode(true)}
+                            onPress={handleSwitchToVideo}
                         >
                             <Text style={[styles.modeBtnText, isVideoMode && styles.modeBtnTextActive]}>Video</Text>
                         </TouchableOpacity>
@@ -439,22 +524,24 @@ export const PlayerScreen: React.FC = () => {
                     >
                         <Icon name="skip-back" size={32} color={history.length === 0 ? "#475569" : "#FFFFFF"} />
                     </TouchableOpacity>
-                    <TouchableOpacity
-                        style={styles.mainPlayBtn}
-                        onPress={handleTogglePlay}
-                    >
-                        <LinearGradient
-                            colors={['#2563EB', '#4F46E5']}
-                            style={styles.mainPlayBtnGradient}
+                    <Animated.View style={{ transform: [{ translateY: pulseAnim }] }}>
+                        <TouchableOpacity
+                            style={styles.mainPlayBtn}
+                            onPress={handleTogglePlay}
                         >
-                            <Icon
-                                name={isPlaying ? 'pause' : 'play'}
-                                size={32}
-                                color="#FFFFFF"
-                                style={!isPlaying ? { marginLeft: 4 } : undefined}
-                            />
-                        </LinearGradient>
-                    </TouchableOpacity>
+                            <LinearGradient
+                                colors={isPlaying ? ['#EF4444', '#DC2626'] : ['#2563EB', '#4F46E5']}
+                                style={styles.mainPlayBtnGradient}
+                            >
+                                <Icon
+                                    name={isPlaying ? 'pause' : 'play'}
+                                    size={32}
+                                    color="#FFFFFF"
+                                    style={!isPlaying ? { marginLeft: 4 } : undefined}
+                                />
+                            </LinearGradient>
+                        </TouchableOpacity>
+                    </Animated.View>
                     <TouchableOpacity
                         onPress={handleNext}
                         style={[styles.controlBtn, queue.length === 0 && styles.controlDisabled]}
