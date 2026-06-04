@@ -39,7 +39,7 @@ export const ResultsScreen: React.FC = () => {
     const route = useRoute<ResultsRouteProp>();
     const { emotion, initialTab } = route.params;
     const { toggleFavorite, isFavorite } = useContext(AppContext);
-    const { playTrack } = usePlayer();
+    const { playTrack, setVideoMode } = usePlayer();
 
     const [activeTab] = useState(initialTab);
 
@@ -200,6 +200,9 @@ export const ResultsScreen: React.FC = () => {
         const index = list.findIndex(i => i.id === item.id);
         const nextItems = list.slice(index + 1).map(i => ({ ...i, type: activeTab }));
         const currentItem = { ...item, type: activeTab };
+
+        // Set video mode BEFORE playing so PlayerScreen opens in the right mode
+        setVideoMode(activeTab === 'Video');
 
         // Set global player state BEFORE navigating
         playTrack(currentItem, nextItems);
