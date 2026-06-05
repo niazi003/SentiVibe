@@ -1,3 +1,4 @@
+export { AppLogo } from './AppLogo';
 export { GlassCard } from './GlassCard';
 export { Button } from './Button';
 export { FeedbackModal } from './FeedbackModal';

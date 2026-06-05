@@ -3,8 +3,7 @@ import { View, Text, StyleSheet, ScrollView, ActivityIndicator } from 'react-nat
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/Feather';
-import LinearGradient from 'react-native-linear-gradient';
-import { GlassCard, Button } from '../components';
+import { AppLogo, GlassCard, Button } from '../components';
 import { NavigationProp } from '../types';
 import { useSpotify } from '../context/SpotifyContext';
 
@@ -21,15 +20,7 @@ export const WelcomeScreen: React.FC = () => {
             >
                 {/* Brand Section */}
                 <View style={styles.brandSection}>
-                    <View style={styles.logoContainer}>
-                        <View style={styles.logoGlow} />
-                        <LinearGradient
-                            colors={['#0F172A', '#1E293B']}
-                            style={styles.logo}
-                        >
-                            <Text style={styles.logoText}>S</Text>
-                        </LinearGradient>
-                    </View>
+                    <AppLogo size="md" />
 
                     <Text style={styles.title}>
                         Senti<Text style={styles.titleAccent}>vibe</Text>
@@ -101,39 +92,6 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         marginBottom: 48,
         marginTop: 32,
-    },
-    logoContainer: {
-        width: 140,
-        height: 140,
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    logoGlow: {
-        position: 'absolute',
-        width: 140,
-        height: 140,
-        borderRadius: 70,
-        backgroundColor: '#2563EB',
-        opacity: 0.3,
-    },
-    logo: {
-        width: 112,
-        height: 112,
-        borderRadius: 56,
-        justifyContent: 'center',
-        alignItems: 'center',
-        borderWidth: 1,
-        borderColor: 'rgba(255, 255, 255, 0.1)',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 10 },
-        shadowOpacity: 0.5,
-        shadowRadius: 20,
-        elevation: 10,
-    },
-    logoText: {
-        fontSize: 48,
-        fontWeight: '900',
-        color: '#60A5FA',
     },
     title: {
         fontSize: 48,

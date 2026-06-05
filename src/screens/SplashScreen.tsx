@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useContext } from 'react';
 import { View, Text, StyleSheet, Animated, Easing } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
-import LinearGradient from 'react-native-linear-gradient';
+import { AppLogo } from '../components';
 import { NavigationProp } from '../types';
 import { AuthContext } from '../context/AuthContext';
 import {
@@ -100,12 +100,7 @@ export const SplashScreen: React.FC = () => {
                                 { transform: [{ scale: glowScale }] },
                             ]}
                         />
-                        <LinearGradient
-                            colors={['#0F172A', '#1E293B']}
-                            style={styles.logo}
-                        >
-                            <Text style={styles.logoText}>S</Text>
-                        </LinearGradient>
+                        <AppLogo size="lg" showGlow={false} />
                     </Animated.View>
 
                     <Animated.View style={{ opacity: textOpacity }}>
@@ -190,25 +185,6 @@ const styles = StyleSheet.create({
         borderRadius: 80,
         backgroundColor: '#2563EB',
         opacity: 0.25,
-    },
-    logo: {
-        width: 128,
-        height: 128,
-        borderRadius: 64,
-        justifyContent: 'center',
-        alignItems: 'center',
-        borderWidth: 1,
-        borderColor: 'rgba(255, 255, 255, 0.1)',
-        shadowColor: '#3B82F6',
-        shadowOffset: { width: 0, height: 0 },
-        shadowOpacity: 0.5,
-        shadowRadius: 30,
-        elevation: 15,
-    },
-    logoText: {
-        fontSize: 56,
-        fontWeight: '900',
-        color: '#60A5FA',
     },
     title: {
         fontSize: 42,

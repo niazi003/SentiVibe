@@ -14,8 +14,7 @@ import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/Feather';
-import LinearGradient from 'react-native-linear-gradient';
-import { GlassCard } from '../components';
+import { AppLogo, GlassCard } from '../components';
 import { NavigationProp, RootStackParamList, ChatMessage } from '../types';
 import { AppContext } from '../context/AppContext';
 import { ICON_STYLE } from '../constants';
@@ -247,12 +246,7 @@ export const ChatbotScreen: React.FC = () => {
                 {/* Header */}
                 <View style={styles.header}>
                     <View style={styles.headerLeft}>
-                        <LinearGradient
-                            colors={['#2563EB', '#4F46E5']}
-                            style={styles.avatar}
-                        >
-                            <Text style={styles.avatarText}>S</Text>
-                        </LinearGradient>
+                        <AppLogo size="sm" showGlow={false} />
                         <View>
                             <Text style={styles.headerTitle}>Sentivibe</Text>
                             <View style={styles.onlineStatus}>
@@ -416,23 +410,6 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         gap: 12,
-    },
-    avatar: {
-        width: 40,
-        height: 40,
-        borderRadius: 20,
-        justifyContent: 'center',
-        alignItems: 'center',
-        shadowColor: '#3B82F6',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.2,
-        shadowRadius: 8,
-        elevation: 5,
-    },
-    avatarText: {
-        fontSize: 16,
-        fontWeight: '700',
-        color: '#FFFFFF',
     },
     headerTitle: {
         fontSize: 16,
