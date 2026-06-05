@@ -1,7 +1,9 @@
 /**
  * Spotify Service — mood-based tracks
  *
- * Recommendation flow:
+ * Recommendation flow (60 tracks total):
+ *   Slots 1–50 → Personalized head (~30 mood+preferences, ~10 favorite artists, ~10 your top tracks)
+ *   Slots 51–60 → Emotion-only tail (popular mood hits, randomized, no preferences)
  *   Step 1 → Try personalized search (uses user top tracks/artists + preferences)
  *   Step 2 → Fall back to mood keyword search (client credentials)
  *   Step 3 → Fall back to FALLBACK_DATA (static, guaranteed YouTube IDs)
@@ -48,6 +50,12 @@ const MOOD_ADJECTIVES = {
   romantic: ['romantic', 'love', 'sensual', 'intimate'],
   neutral:  ['popular', 'trending', 'top hits', 'chart'],
 };
+
+const RECOMMENDATION_TOTAL = 60;
+/** Bottom slots reserved for popular mood-only tracks (no user preferences), randomized each request */
+const EMOTION_ONLY_SLOTS = 10;
+/** Reserved slots for the user's own Spotify listening history (fills when artist slots are short) */
+const TOP_TRACK_SLOTS = 10;
 
 const JUNK_KEYWORDS = [
   'karaoke', 'piano cover', 'cover version', 'backing track', 'tribute', 'made popular',
@@ -442,6 +450,81 @@ async function getTracksFromMoodSearchOnly(api, mood, limit, excludeIds = new Se
   return allTracks.slice(0, limit).map(({ _popularity, ...t }) => t);
 }
 
+function shuffleArray(items) {
+  const arr = [...items];
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+/**
+ * Popular tracks tied to the mood only (MOOD_SEARCH_QUERIES — no genres/artists/language).
+ * Randomly samples from the top of the popularity pool so repeat sessions feel fresh.
+ */
+async function getEmotionOnlyRandomTracks(api, mood, count, excludeIds = new Set(), market = 'US') {
+  const queries = MOOD_SEARCH_QUERIES[mood] || MOOD_SEARCH_QUERIES.neutral;
+  const rotatedQueries = shuffleArray(queries);
+
+  logSongSource(
+    `Emotion-only tail — ${count} randomized popular track(s) for mood="${mood}" (no user preferences)`
+  );
+
+  const searchPromises = rotatedQueries.map(async (query) => {
+    try {
+      const result = await searchTracksCompat(api, query, { limit: 15, market });
+      return result.body.tracks?.items || [];
+    } catch (err) {
+      console.warn(`[Spotify] Emotion-only query failed: "${query}"`, err.message);
+      return [];
+    }
+  });
+
+  const results = await Promise.all(searchPromises);
+  const seenIds = new Set(excludeIds);
+  const seenTitles = new Set();
+  const pool = [];
+
+  for (const tracks of results) {
+    ingestTrackObjects(tracks, seenIds, seenTitles, null, pool);
+  }
+
+  pool.sort((a, b) => b._popularity - a._popularity);
+  const popularPool = pool.slice(0, Math.min(35, pool.length));
+  const picked = shuffleArray(popularPool).slice(0, count);
+
+  console.log(
+    `[Spotify] Emotion-only tail: picked ${picked.length}/${count} from pool of ${popularPool.length} (mood=${mood})`
+  );
+
+  return picked.map(({ _popularity, ...t }) => t);
+}
+
+/**
+ * Keep the personalized head, replace the last EMOTION_ONLY_SLOTS with fresh mood-only picks.
+ */
+async function appendEmotionOnlyTracks(tracks, mood, market = 'US', targetTotal = RECOMMENDATION_TOTAL) {
+  const baseLimit = Math.max(0, targetTotal - EMOTION_ONLY_SLOTS);
+  const base = (tracks || []).slice(0, baseLimit);
+  const exclude = new Set(base.map((r) => r.spotifyId).filter(Boolean));
+
+  try {
+    const api = await initSpotify();
+    const emotionOnly = await getEmotionOnlyRandomTracks(
+      api,
+      mood,
+      EMOTION_ONLY_SLOTS,
+      exclude,
+      market
+    );
+    return base.concat(emotionOnly).slice(0, targetTotal);
+  } catch (err) {
+    console.warn('[Spotify] Emotion-only tail failed, returning base tracks:', err.message);
+    return (tracks || []).slice(0, targetTotal);
+  }
+}
+
 /**
  * Verify that an access token is a valid Spotify user session (lightweight).
  */
@@ -565,7 +648,7 @@ async function buildPersonalizedMoodTracks(userApi, mood, userPrefs, limit) {
   // ── STEP B: Spotify listening history (skip when user set explicit favorite artists) ──
   if (!useSavedArtistsOnly) {
     try {
-      const res = await userApi.getMyTopTracks({ limit: 10, time_range: 'medium_term' });
+      const res = await userApi.getMyTopTracks({ limit: TOP_TRACK_SLOTS, time_range: 'medium_term' });
       const rawTracks = res.body.items || [];
       ingestTrackObjects(rawTracks, seenIds, seenTitles, null, fromTopTracks);
       console.log(`[Spotify] Top tracks: ${fromTopTracks.length} ingested`);
@@ -611,17 +694,28 @@ async function buildPersonalizedMoodTracks(userApi, mood, userPrefs, limit) {
   console.log(`[Spotify] Artist top tracks: ${fromArtistTopTracks.length} from ${artistSlice.length} artists`);
 
   // ── STEP E: Merge (preference-first) ─────────────────────────
+  // Caller reserves EMOTION_ONLY_SLOTS at the end; this merge fills the personalized head only.
   // Keep the user's preferences (genres/language) as the main driver,
   // then blend in top-artist tracks for personalisation.
   const merged = [];
 
   // 1. Mood-specific preference search results first (sorted by popularity)
   fromPreferenceSearch.sort((a, b) => b._popularity - a._popularity);
-  const targetMoodSlots = Math.min(fromPreferenceSearch.length, Math.floor(limit * 0.7));
-  const targetArtistSlots = Math.min(fromArtistTopTracks.length, Math.floor(limit * 0.25));
+  const reservedTopTrackSlots = useSavedArtistsOnly ? 0 : TOP_TRACK_SLOTS;
+  const moodArtistBudget = limit - reservedTopTrackSlots;
+  const targetMoodSlots = Math.min(
+    fromPreferenceSearch.length,
+    Math.floor(moodArtistBudget * 0.75)
+  );
+  const maxArtistSlots = moodArtistBudget - targetMoodSlots;
+  const targetArtistSlots = Math.min(fromArtistTopTracks.length, maxArtistSlots);
   const targetTopTrackSlots = useSavedArtistsOnly
     ? 0
-    : Math.min(fromTopTracks.length, 3, limit - (targetMoodSlots + targetArtistSlots));
+    : Math.min(
+        fromTopTracks.length,
+        reservedTopTrackSlots,
+        limit - targetMoodSlots - targetArtistSlots
+      );
 
   for (let i = 0; i < targetMoodSlots; i++) merged.push(fromPreferenceSearch[i]);
   for (let i = 0; i < targetArtistSlots && merged.length < limit; i++) merged.push(fromArtistTopTracks[i]);
@@ -646,7 +740,9 @@ async function buildPersonalizedMoodTracks(userApi, mood, userPrefs, limit) {
 
   const topTrackSlots = targetTopTrackSlots;
 
-  console.log(`[Spotify] Merge breakdown: ${Math.min(fromPreferenceSearch.length, limit)} mood-search + ${fromArtistTopTracks.length} artist + ${topTrackSlots} personal-flavor = ${merged.length} total`);
+  console.log(
+    `[Spotify] Merge breakdown: ${targetMoodSlots} mood-search + ${targetArtistSlots} artist + ${topTrackSlots} personal-top-tracks = ${merged.length} total (budget ${limit})`
+  );
 
   // Strip internal _popularity field
   return merged.map(({ _popularity, ...t }) => t);
@@ -665,9 +761,10 @@ async function buildPersonalizedMoodTracks(userApi, mood, userPrefs, limit) {
  * @param {{ userAccessToken?: string | null }} [options]
  * @returns {{ tracks: Array, source: string, playlist?: object | null }}
  */
-async function getRecommendationsByMood(mood, limit = 50, options = {}) {
+async function getRecommendationsByMood(mood, limit = RECOMMENDATION_TOTAL, options = {}) {
   const normalizedMood = mood.toLowerCase();
   const userAccessToken = options.userAccessToken || null;
+  const personalizedLimit = Math.max(1, limit - EMOTION_ONLY_SLOTS);
 
   if (userAccessToken) {
     logSongSource(
@@ -702,37 +799,42 @@ async function getRecommendationsByMood(mood, limit = 50, options = {}) {
         userApi,
         normalizedMood,
         userPrefs,
-        limit
+        personalizedLimit
       );
 
       if (personalizedTracks.length >= 3) {
         // We have enough personalized tracks
         let rows = personalizedTracks;
 
-        // Top up with generic search if we didn't hit the limit
-        if (rows.length < limit) {
+        // Top up personalized head with generic search if we didn't hit personalizedLimit
+        if (rows.length < personalizedLimit) {
           const api = await initSpotify();
-          const exclude = new Set(rows.map(r => r.spotifyId));
+          const exclude = new Set(rows.map((r) => r.spotifyId));
           const more = await getTracksFromMoodSearchOnly(
             api,
             normalizedMood,
-            limit - rows.length,
+            personalizedLimit - rows.length,
             exclude,
             userMarket
           );
           rows = rows.concat(more);
         }
 
-        const final = rows.slice(0, limit);
+        const final = await appendEmotionOnlyTracks(
+          rows.slice(0, personalizedLimit),
+          normalizedMood,
+          userMarket,
+          limit
+        );
         const sourceLabel = hasPrefs
           ? 'personalized: top-tracks + artist-based + preference-queries'
           : 'semi-personalized: preference-queries only';
 
         logSongSource(
-          `Final: ${final.length} track(s) via ${sourceLabel} (source=personalized; ${final.filter(t => t.videoId).length} with bundled YouTube videoIds)`
+          `Final: ${final.length} track(s) via ${sourceLabel} + ${EMOTION_ONLY_SLOTS} emotion-only randomized (source=personalized; ${final.filter(t => t.videoId).length} with bundled YouTube videoIds)`
         );
         console.log(
-          `[Spotify] ✅ ${sourceLabel}: ${final.length} tracks for mood=${normalizedMood}`
+          `[Spotify] ✅ ${sourceLabel}: ${final.length} tracks (${personalizedLimit} personalized + ${EMOTION_ONLY_SLOTS} emotion-only) for mood=${normalizedMood}`
         );
         return { tracks: final, source: 'personalized', playlist: null };
       }
@@ -751,13 +853,14 @@ async function getRecommendationsByMood(mood, limit = 50, options = {}) {
   // ── Step 2: Generic mood keyword search via client credentials ──
   try {
     const api = await initSpotify();
-    const final = await getTracksFromMoodSearchOnly(api, normalizedMood, limit, new Set(), 'US');
+    const main = await getTracksFromMoodSearchOnly(api, normalizedMood, personalizedLimit, new Set(), 'US');
+    const final = await appendEmotionOnlyTracks(main, normalizedMood, 'US', limit);
     if (final.length > 0) {
       logSongSource(
-        `Final: ${final.length} track(s) via generic: mood keyword search (source=spotify; ${final.filter((t) => t.videoId).length} with bundled YouTube videoIds)`
+        `Final: ${final.length} track(s) via generic: mood keyword search + ${EMOTION_ONLY_SLOTS} emotion-only randomized (source=spotify; ${final.filter((t) => t.videoId).length} with bundled YouTube videoIds)`
       );
       console.log(
-        `[Spotify] ✅ generic: mood keyword search — ${final.length} tracks for mood=${normalizedMood} (${final.filter((t) => t.videoId).length} with known videoIds)`
+        `[Spotify] ✅ generic: mood keyword search — ${final.length} tracks (${personalizedLimit} popular + ${EMOTION_ONLY_SLOTS} emotion-only) for mood=${normalizedMood} (${final.filter((t) => t.videoId).length} with known videoIds)`
       );
       return { tracks: final, source: 'spotify', playlist: null };
     }
@@ -865,6 +968,10 @@ const FALLBACK_DATA = {
 
 module.exports = {
   getRecommendationsByMood,
+  appendEmotionOnlyTracks,
   validateSpotifyUserToken,
   MOOD_SEARCH_QUERIES,
+  RECOMMENDATION_TOTAL,
+  EMOTION_ONLY_SLOTS,
+  TOP_TRACK_SLOTS,
 };

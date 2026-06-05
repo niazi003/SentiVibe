@@ -117,7 +117,7 @@ export const ResultsScreen: React.FC = () => {
         }
 
         try {
-            const response = await fetchRecommendations(emotion, 10);
+            const response = await fetchRecommendations(emotion, 60);
 
             if (response.data && response.data.length > 0) {
                 // Map API response to MediaItem format

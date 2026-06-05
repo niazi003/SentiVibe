@@ -31,7 +31,12 @@ const express = require('express');
 const cors = require('cors');
 const NodeCache = require('node-cache');
 const crypto = require('crypto');
-const { getRecommendationsByMood, validateSpotifyUserToken } = require('./services/spotify');
+const {
+  getRecommendationsByMood,
+  appendEmotionOnlyTracks,
+  validateSpotifyUserToken,
+  RECOMMENDATION_TOTAL,
+} = require('./services/spotify');
 const { findVideosForTracks, searchVideo, searchTrailer } = require('./services/youtube');
 const { recommendMovies } = require('./ai_client');
 const { swapToken, refreshToken } = require('./services/auth');
@@ -105,12 +110,12 @@ app.get('/api/health', (req, res) => {
 });
 
 // ── Mobile App: Mood-based Recommendations ────────────────────
-// GET /api/recommendations?mood=happy&limit=50
+// GET /api/recommendations?mood=happy&limit=60
 // Optional: Authorization: Bearer <Spotify user access token> for playlist-based personalization
 // Pipeline: mood → (optional) Spotify personalized playlists → track search → merged result
 app.get('/api/recommendations', async (req, res) => {
   try {
-    const { mood, limit = 50 } = req.query;
+    const { mood, limit = RECOMMENDATION_TOTAL } = req.query;
 
     if (!mood) {
       return res.status(400).json({
@@ -121,11 +126,11 @@ app.get('/api/recommendations', async (req, res) => {
 
     const moodNorm = mood.toLowerCase();
     // Enforce a "good default" list size for UX.
-    // If the client sends limit=10, we still return 50 (user asked for 50).
+    // If the client sends limit=10, we still return 60 (user asked for 60).
     const rawLimit = parseInt(String(limit), 10);
     const limitNum = Number.isFinite(rawLimit)
-      ? Math.min(50, Math.max(50, rawLimit))
-      : 50;
+      ? Math.min(RECOMMENDATION_TOTAL, Math.max(RECOMMENDATION_TOTAL, rawLimit))
+      : RECOMMENDATION_TOTAL;
 
     let cachePartition = 'anon';
     let userAccessToken = null;
@@ -149,12 +154,14 @@ app.get('/api/recommendations', async (req, res) => {
     const cached = cache.get(cacheKey);
     if (cached) {
       console.log(`[Cache] HIT for mood: ${mood}`);
-      const tracks = Array.isArray(cached) ? cached : cached.tracks;
+      const cachedTracks = Array.isArray(cached) ? cached : cached.tracks;
       const source = cached.source ?? 'spotify';
       const playlist = cached.playlist ?? null;
+      const tracks = await appendEmotionOnlyTracks(cachedTracks, moodNorm, 'US', limitNum);
       console.log(
         `[Song source] /api/recommendations cache HIT — ${tracks.length} track(s), source=${source}` +
-          (playlist?.name ? `, was playlist="${playlist.name}"` : '')
+          (playlist?.name ? `, was playlist="${playlist.name}"` : '') +
+          ' (emotion-only tail refreshed)'
       );
       return res.json({
         mood: moodNorm,

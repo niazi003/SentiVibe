@@ -31,7 +31,7 @@ const AI_TIMEOUT = 90000; // 90 seconds — LLM inference can be slow
  */
 export async function fetchRecommendations(
   mood: string,
-  limit: number = 10
+  limit: number = 60
 ): Promise<ApiResponse<TrackRecommendation[]>> {
   try {
     const controller = new AbortController();
