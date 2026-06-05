@@ -33,7 +33,7 @@ export interface MediaItem {
     artist: string;
     duration: string;
     cover: string;
-    rating?: number;               // Dataset rating (movies only, e.g. 7.4)
+    rating?: number;               // Display rating — IMDb preferred (movies only, e.g. 7.4)
     description?: string;
     trailer?: string;
     videoUrl?: string;

@@ -29,6 +29,7 @@ import { AppContext } from '../context/AppContext';
 import { usePlayer } from '../context/PlayerContext';
 import { fetchRecommendations, fetchMovieRecommendations, fetchMovieTrailer } from '../services/api';
 import { formatMovieSynopsis, formatMovieReview } from '../utils/formatMovieText';
+import { getMovieDisplayRating, getRatingBadgeColor, getStarDisplay, parseImdbRating } from '../utils/movieRating';
 import { getPreferencesFromFirestore } from '../services/firestorePreferences';
 
 const SCREEN_HEIGHT = Dimensions.get('window').height;
@@ -94,7 +95,7 @@ export const ResultsScreen: React.FC = () => {
                         artist: movie.artist,
                         duration: movie.duration,
                         cover: movie.cover,
-                        rating: movie.rating,
+                        rating: parseImdbRating(movie.imdbRating) ?? movie.rating,
                         description: movie.description,
                         reviews: movie.reviews,
                         trailer: movie.trailer || movie.videoUrl || undefined,
@@ -342,12 +343,13 @@ export const ResultsScreen: React.FC = () => {
                                                         <Text style={styles.genreText} numberOfLines={1}>{item.artist}</Text>
                                                     </View>
                                                 </View>
-                                                {item.rating != null && (() => {
-                                                    const score = item.rating;
-                                                    const badgeColor = score >= 7 ? '#10B981' : score >= 5 ? '#F59E0B' : '#EF4444';
-                                                    const starsOf5 = score / 2;
-                                                    const fullStars = Math.floor(starsOf5);
-                                                    const hasHalf = (starsOf5 - fullStars) >= 0.4;
+                                                {(() => {
+                                                    const score = getMovieDisplayRating(item);
+                                                    if (score == null) {
+                                                        return null;
+                                                    }
+                                                    const badgeColor = getRatingBadgeColor(score);
+                                                    const { fullStars, hasHalf } = getStarDisplay(score);
                                                     return (
                                                         <View style={styles.ratingBlock}>
                                                             <View style={[styles.ratingBadge, { backgroundColor: badgeColor + '22', borderColor: badgeColor }]}>
@@ -477,14 +479,17 @@ export const ResultsScreen: React.FC = () => {
                                     <View style={styles.genreBadge}>
                                         <Text style={styles.genreText}>{selectedMovie?.artist}</Text>
                                     </View>
-                                    {selectedMovie?.rating != null && (() => {
-                                        const score = selectedMovie.rating!;
-                                        const badgeColor = score >= 7 ? '#10B981' : score >= 5 ? '#F59E0B' : '#EF4444';
+                                    {(() => {
+                                        const score = selectedMovie ? getMovieDisplayRating(selectedMovie) : null;
+                                        if (score == null) {
+                                            return null;
+                                        }
+                                        const badgeColor = getRatingBadgeColor(score);
                                         return (
                                             <View style={[styles.ratingBadge, { backgroundColor: badgeColor + '22', borderColor: badgeColor }]}>
                                                 <Text style={styles.ratingBadgeIcon}>⭐</Text>
                                                 <Text style={[styles.ratingBadgeText, { color: badgeColor }]}>{score.toFixed(1)}</Text>
-                                                <Text style={styles.ratingScale}>/10</Text>
+                                                <Text style={styles.ratingScale}>/10 IMDb</Text>
                                             </View>
                                         );
                                     })()}
@@ -502,11 +507,12 @@ export const ResultsScreen: React.FC = () => {
                                 </View>
 
                                 {/* Star row */}
-                                {selectedMovie?.rating != null && (() => {
-                                    const score = selectedMovie.rating!;
-                                    const starsOf5 = score / 2;
-                                    const fullStars = Math.floor(starsOf5);
-                                    const hasHalf = (starsOf5 - fullStars) >= 0.4;
+                                {(() => {
+                                    const score = selectedMovie ? getMovieDisplayRating(selectedMovie) : null;
+                                    if (score == null) {
+                                        return null;
+                                    }
+                                    const { fullStars, hasHalf } = getStarDisplay(score);
                                     return (
                                         <View style={styles.modalStarsRow}>
                                             {[1, 2, 3, 4, 5].map(i => (
@@ -570,13 +576,12 @@ export const ResultsScreen: React.FC = () => {
                                     </>
                                 ) : null}
 
-                                {(selectedMovie?.imdbRating || selectedMovie?.country || selectedMovie?.language || selectedMovie?.boxOffice) && (
+                                {(selectedMovie?.imdbVotes || selectedMovie?.country || selectedMovie?.language || selectedMovie?.boxOffice) && (
                                     <>
                                         <Text style={styles.modalSectionLabel}>IMDb Info</Text>
-                                        {selectedMovie?.imdbRating ? (
+                                        {selectedMovie?.imdbVotes ? (
                                             <Text style={styles.modalDetailText}>
-                                                IMDb: {selectedMovie.imdbRating}/10
-                                                {selectedMovie.imdbVotes ? ` (${selectedMovie.imdbVotes} votes)` : ''}
+                                                {selectedMovie.imdbVotes} IMDb votes
                                             </Text>
                                         ) : null}
                                         {selectedMovie?.country ? (
