@@ -40,23 +40,23 @@ SentiVibe turns your mood into media recommendations. Tell the app how you feel 
 
 | Onboarding | Home Screen |
 |:---:|:---:|
-| ![Onboarding splash screen](docs/media/screenshots/onboarding.png) | ![Welcome and login screen](docs/media/screenshots/home-screen.png) |
+| <img src="docs/media/screenshots/onboarding.png" alt="Onboarding splash screen" width="50%" /> | <img src="docs/media/screenshots/home-screen.png" alt="Welcome and login screen" width="50%" /> |
 
 ### Mood Detection
 
 | AI Chatbot | Voice Detection | Face Detection |
 |:---:|:---:|:---:|
-| ![Chatbot before mood detection](docs/media/screenshots/chatbot-before-detection.png) | ![Speak to Vibe voice screen](docs/media/screenshots/voice-emotion.png) | ![Face mood detection screen](docs/media/screenshots/face-emotion.png) |
+| <img src="docs/media/screenshots/chatbot-before-detection.png" alt="Chatbot before mood detection" width="50%" /> | <img src="docs/media/screenshots/voice-emotion.png" alt="Speak to Vibe voice screen" width="50%" /> | <img src="docs/media/screenshots/face-emotion.png" alt="Face mood detection screen" width="50%" /> |
 
 ### Recommendations & Playback
 
 | Mood Detected | Music Results | Movie Results |
 |:---:|:---:|:---:|
-| ![Chatbot after emotion detected](docs/media/screenshots/emotion-detected-chatbot.png) | ![Music recommendations for Happy mood](docs/media/screenshots/music-recommendations.png) | ![Movie recommendations for Happy mood](docs/media/screenshots/movie-recommendations.png) |
+| <img src="docs/media/screenshots/emotion-detected-chatbot.png" alt="Chatbot after emotion detected" width="50%" /> | <img src="docs/media/screenshots/music-recommendations.png" alt="Music recommendations for Happy mood" width="50%" /> | <img src="docs/media/screenshots/movie-recommendations.png" alt="Movie recommendations for Happy mood" width="50%" /> |
 
 | Music Player | Profile |
 |:---:|:---:|
-| ![In-app music player](docs/media/screenshots/music-player.png) | ![User profile screen](docs/media/screenshots/profile-screen.png) |
+| <img src="docs/media/screenshots/music-player.png" alt="In-app music player" width="50%" /> | <img src="docs/media/screenshots/profile-screen.png" alt="User profile screen" width="50%" /> |
 
 ---
 
