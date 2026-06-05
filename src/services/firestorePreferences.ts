@@ -56,7 +56,10 @@ export async function savePreferencesToFirestore(
     });
 
     if (!backendResult.success) {
-      console.warn('[Preferences] Firestore saved but backend sync failed — music picks may be stale until Spotify is connected');
+      console.warn(
+        '[Preferences] Firestore saved but backend sync failed — music picks may be stale until Spotify is connected',
+      );
+      return { success: false };
     }
 
     return { success: true };

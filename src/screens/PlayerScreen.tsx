@@ -20,6 +20,7 @@ import {
     Text,
     StyleSheet,
     TouchableOpacity,
+    Pressable,
     Image,
     Dimensions,
     Alert,
@@ -38,7 +39,6 @@ import { usePlayer } from '../context/PlayerContext';
 import { ICON_STYLE } from '../constants';
 import { sendFeedback, fetchYouTubeVideoId } from '../services/api';
 import {
-    onPlayerStateChanged,
     getPlayerState,
     playTrack as spotifyPlayTrack,
     pausePlayback,
@@ -47,6 +47,10 @@ import {
     skipNext as spotifySkipNext,
     skipPrevious as spotifySkipPrevious,
 } from '../services/spotify';
+import { isSpotifyTrackMatch } from '../utils/playlist';
+
+const TRACK_END_COOLDOWN_MS = 4000;
+const TRACK_END_THRESHOLD_SEC = 0.5;
 
 export const PlayerScreen: React.FC = () => {
     const navigation = useNavigation<NavigationProp>();
@@ -56,13 +60,28 @@ export const PlayerScreen: React.FC = () => {
 
     // All playback state comes from the global PlayerContext
     const {
-        state: { currentTrack, queue, history, isPlaying, isVideoMode, currentTime, duration },
+        state: {
+            currentTrack,
+            queue,
+            history,
+            isShuffle,
+            repeatMode,
+            playEpoch,
+            isPlaying,
+            isVideoMode,
+            currentTime,
+            duration,
+        },
         pause,
         resume,
         togglePlay,
         setPlaying,
         next,
         previous,
+        onTrackEnded,
+        replayCurrent,
+        toggleShuffle,
+        cycleRepeat,
         setVideoMode,
         setTime,
         playFromQueue,
@@ -70,8 +89,8 @@ export const PlayerScreen: React.FC = () => {
     } = usePlayer();
 
     const screenWidth = Dimensions.get('window').width;
-    const trackWidth = screenWidth - 48;
     const videoHeight = (screenWidth - 48) * (9 / 16);
+    const [measuredTrackWidth, setMeasuredTrackWidth] = useState(screenWidth - 48);
 
     // ── Pulsing animation for the play button when audio is playing ──
     const pulseAnim = useRef(new Animated.Value(0)).current;
@@ -191,28 +210,36 @@ export const PlayerScreen: React.FC = () => {
         return `${mins}:${secs.toString().padStart(2, '0')}`;
     }, []);
 
+    const effectiveDuration =
+        duration > 0
+            ? duration
+            : currentTrack?.durationMs
+                ? currentTrack.durationMs / 1000
+                : 0;
+
     /**
      * Calculate progress percentage for the progress bar
      */
-    const progressPercent = duration > 0 ? (currentTime / duration) * 100 : 0;
+    const progressPercent = effectiveDuration > 0 ? (currentTime / effectiveDuration) * 100 : 0;
 
     /**
      * Handle seeking when user taps on the progress bar
      */
-    const handleSeek = useCallback((e: any) => {
-        if (duration <= 0) return;
-        const percent = Math.max(0, Math.min(1, e.nativeEvent.locationX / trackWidth));
-        const seekTime = percent * duration;
+    const handleSeek = useCallback((locationX: number) => {
+        if (effectiveDuration <= 0 || measuredTrackWidth <= 0) return;
+
+        const percent = Math.max(0, Math.min(1, locationX / measuredTrackWidth));
+        const seekTime = percent * effectiveDuration;
+
+        // Update UI immediately so seek feels responsive (Spotify poll is ~1s)
+        setTime(seekTime, effectiveDuration);
 
         if (isVideoMode) {
-            if (playerRef.current) {
-                playerRef.current.seekTo(seekTime);
-            }
+            playerRef.current?.seekTo(seekTime);
         } else {
-            // Spotify Remote expects milliseconds
             spotifySeekTo(Math.floor(seekTime * 1000));
         }
-    }, [duration, trackWidth, isVideoMode]);
+    }, [effectiveDuration, measuredTrackWidth, isVideoMode, setTime]);
 
     /**
      * Music mode: when track changes OR mode toggles back from video,
@@ -242,52 +269,74 @@ export const PlayerScreen: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     // Note: currentTime intentionally excluded — we only want this to fire
     // on track change or mode toggle, reading currentTime as a snapshot.
-    }, [currentTrack?.id, currentTrack?.spotifyId, isVideoMode]);
+    }, [currentTrack?.id, currentTrack?.spotifyId, isVideoMode, playEpoch]);
+
+    const trackEndedRef = useRef(false);
+    const advanceCooldownUntilRef = useRef(0);
+
+    useEffect(() => {
+        trackEndedRef.current = false;
+        advanceCooldownUntilRef.current = Date.now() + TRACK_END_COOLDOWN_MS;
+    }, [currentTrack?.id, playEpoch]);
+
+    const handleMusicTrackEnd = useCallback(() => {
+        if (trackEndedRef.current || Date.now() < advanceCooldownUntilRef.current) {
+            return;
+        }
+
+        trackEndedRef.current = true;
+        advanceCooldownUntilRef.current = Date.now() + TRACK_END_COOLDOWN_MS;
+
+        if (repeatMode === 'one') {
+            spotifySeekTo(0).then(() => resumePlayback());
+            replayCurrent();
+            return;
+        }
+
+        onTrackEnded();
+    }, [repeatMode, onTrackEnded, replayCurrent]);
 
     /**
-     * Music mode: subscribe to Spotify playback state and sync progress + play/pause.
+     * Music mode: poll Spotify and advance only when the current playlist
+     * track has genuinely finished (prevents stale poll data from skipping ahead).
      */
     useEffect(() => {
-        if (isVideoMode) return;
+        if (isVideoMode || !currentTrack) return;
 
-        let unsub: (() => void) | null = null;
         let cancelled = false;
         const pollMs = 1000;
-        let pollTimer: any = null;
 
-        (async () => {
-            // Prime UI with current state ASAP (in case no event fires immediately)
+        const pollPlayback = async () => {
             const state = await getPlayerState();
-            if (!cancelled && state) {
-                setTime(state.playbackPosition / 1000, state.duration / 1000);
-                setPlaying(!state.isPaused);
+            if (cancelled || !state) return;
+
+            const positionSec = state.playbackPosition / 1000;
+            const durationSec = state.duration / 1000;
+
+            setTime(positionSec, durationSec);
+            setPlaying(!state.isPaused);
+
+            if (
+                !state.isPaused &&
+                durationSec > 3 &&
+                positionSec >= durationSec - TRACK_END_THRESHOLD_SEC &&
+                isSpotifyTrackMatch(state.trackName, currentTrack)
+            ) {
+                handleMusicTrackEnd();
             }
-        })();
+        };
 
-        unsub = onPlayerStateChanged((rawState: any) => {
-            const playbackPositionMs = rawState?.playbackPosition ?? 0;
-            const durationMs = rawState?.track?.duration ?? 0;
-            const isPaused = rawState?.isPaused ?? true;
-
-            setTime(playbackPositionMs / 1000, durationMs / 1000);
-            setPlaying(!isPaused);
-        });
-
-        // Spotify Web API has no push events; poll as a reliable fallback.
-        pollTimer = setInterval(async () => {
-            const state = await getPlayerState();
-            if (!cancelled && state) {
-                setTime(state.playbackPosition / 1000, state.duration / 1000);
-                setPlaying(!state.isPaused);
-            }
-        }, pollMs);
+        pollPlayback();
+        const pollTimer = setInterval(pollPlayback, pollMs);
 
         return () => {
             cancelled = true;
-            unsub?.();
-            if (pollTimer) clearInterval(pollTimer);
+            clearInterval(pollTimer);
         };
-    }, [isVideoMode, setPlaying, setTime]);
+    }, [isVideoMode, currentTrack, handleMusicTrackEnd, setPlaying, setTime]);
+
+    const canGoPrevious = history.length > 0;
+    const canGoNext = queue.length > 0 || repeatMode === 'all';
 
     const handleTogglePlay = useCallback(async () => {
         if (isVideoMode) {
@@ -305,18 +354,17 @@ export const PlayerScreen: React.FC = () => {
     }, [isVideoMode, isPlaying, pause, resume, togglePlay]);
 
     const handleNext = useCallback(async () => {
-        if (isVideoMode) {
+        if (queue.length > 0 || repeatMode === 'all') {
+            advanceCooldownUntilRef.current = Date.now() + TRACK_END_COOLDOWN_MS;
+            trackEndedRef.current = true;
             next();
             return;
         }
 
-        if (queue.length > 0) {
-            next(); // will trigger spotifyPlayTrack via effect
-            return;
+        if (!isVideoMode) {
+            await spotifySkipNext();
         }
-
-        await spotifySkipNext();
-    }, [isVideoMode, next, queue.length]);
+    }, [isVideoMode, next, queue.length, repeatMode]);
 
     const handlePrevious = useCallback(async () => {
         if (isVideoMode) {
@@ -369,10 +417,23 @@ export const PlayerScreen: React.FC = () => {
                     action: 'skip',
                 });
             }
-            // Auto-play next track when current one ends
-            next();
+
+            if (repeatMode === 'one') {
+                playerRef.current?.seekTo(0);
+                resume();
+                replayCurrent();
+                return;
+            }
+
+            if (trackEndedRef.current || Date.now() < advanceCooldownUntilRef.current) {
+                return;
+            }
+
+            trackEndedRef.current = true;
+            advanceCooldownUntilRef.current = Date.now() + TRACK_END_COOLDOWN_MS;
+            onTrackEnded();
         }
-    }, [next, trackFeedback, currentTrack, userData]);
+    }, [onTrackEnded, replayCurrent, resume, repeatMode, trackFeedback, currentTrack, userData]);
 
     /**
      * Handle progress updates from YouTube player
@@ -516,38 +577,44 @@ export const PlayerScreen: React.FC = () => {
                     </View>
                 </View>
 
-                {/* Progress Bar — Shows in BOTH modes, synced with YouTube player */}
+                {/* Progress Bar — large touch target; visual track stays thin */}
                 <View style={styles.progressContainer}>
-                    <TouchableOpacity
-                        style={styles.progressTrack}
-                        activeOpacity={1}
-                        onPress={handleSeek}
+                    <Pressable
+                        style={styles.progressTouchArea}
+                        onLayout={(e) => setMeasuredTrackWidth(e.nativeEvent.layout.width)}
+                        onPress={(e) => handleSeek(e.nativeEvent.locationX)}
                     >
-                        <View style={[styles.progressFill, { width: `${Math.min(progressPercent, 100)}%` }]} />
-                        <View style={[styles.progressThumb, { left: `${Math.min(progressPercent, 100)}%` }]} />
-                    </TouchableOpacity>
+                        <View style={styles.progressTrack} pointerEvents="none">
+                            <View style={[styles.progressFill, { width: `${Math.min(progressPercent, 100)}%` }]} />
+                            <View style={[styles.progressThumb, { left: `${Math.min(progressPercent, 100)}%` }]} />
+                        </View>
+                    </Pressable>
                     <View style={styles.progressTimes}>
                         <Text style={styles.progressTime}>{formatTime(currentTime)}</Text>
                         <Text style={styles.progressTime}>
-                            {duration > 0 ? formatTime(duration) : (currentTrack.duration || '0:00')}
+                            {effectiveDuration > 0 ? formatTime(effectiveDuration) : (currentTrack.duration || '0:00')}
                         </Text>
                     </View>
                 </View>
 
-                {/* Playback Controls — Only in Music mode.
-                    YouTube's embedded player has native controls, so showing
-                    ours too is redundant. Hiding this does NOT break the
-                    global state machine — these are purely UI triggers. */}
-                {!isVideoMode && (
+                {/* Playback Controls — wired to the global playlist for Music, Video, and Movie */}
                 <View style={styles.controls}>
-                    <TouchableOpacity>
-                        <Icon name="shuffle" size={20} color="#94A3B8" />
+                    <TouchableOpacity
+                        onPress={toggleShuffle}
+                        style={styles.auxControlBtn}
+                    >
+                        <Icon
+                            name="shuffle"
+                            size={20}
+                            color={isShuffle ? '#3B82F6' : '#94A3B8'}
+                        />
                     </TouchableOpacity>
                     <TouchableOpacity
                         onPress={handlePrevious}
-                        style={[styles.controlBtn, history.length === 0 && styles.controlDisabled]}
+                        disabled={!canGoPrevious}
+                        style={[styles.controlBtn, !canGoPrevious && styles.controlDisabled]}
                     >
-                        <Icon name="skip-back" size={32} color={history.length === 0 ? "#475569" : "#FFFFFF"} />
+                        <Icon name="skip-back" size={32} color={canGoPrevious ? '#FFFFFF' : '#475569'} />
                     </TouchableOpacity>
                     <Animated.View style={{ transform: [{ translateY: pulseAnim }] }}>
                         <TouchableOpacity
@@ -569,15 +636,25 @@ export const PlayerScreen: React.FC = () => {
                     </Animated.View>
                     <TouchableOpacity
                         onPress={handleNext}
-                        style={[styles.controlBtn, queue.length === 0 && styles.controlDisabled]}
+                        disabled={!canGoNext}
+                        style={[styles.controlBtn, !canGoNext && styles.controlDisabled]}
                     >
-                        <Icon name="skip-forward" size={32} color={queue.length === 0 ? "#475569" : "#FFFFFF"} />
+                        <Icon name="skip-forward" size={32} color={canGoNext ? '#FFFFFF' : '#475569'} />
                     </TouchableOpacity>
-                    <TouchableOpacity>
-                        <Icon name="repeat" size={20} color="#94A3B8" />
+                    <TouchableOpacity
+                        onPress={cycleRepeat}
+                        style={styles.auxControlBtn}
+                    >
+                        <Icon
+                            name="repeat"
+                            size={20}
+                            color={repeatMode !== 'off' ? '#3B82F6' : '#94A3B8'}
+                        />
+                        {repeatMode === 'one' && (
+                            <Text style={styles.repeatOneBadge}>1</Text>
+                        )}
                     </TouchableOpacity>
                 </View>
-                )}
 
                 {/* Queue Section */}
                 {queue.length > 0 && (
@@ -805,16 +882,20 @@ const styles = StyleSheet.create({
     feedbackBtnDangerActive: {
         backgroundColor: '#EF4444',
     },
-    // Progress bar
+    // Progress bar — 44px touch area, 6px visual track
     progressContainer: {
         marginBottom: 24,
+    },
+    progressTouchArea: {
+        minHeight: 44,
+        justifyContent: 'center',
+        marginBottom: 4,
     },
     progressTrack: {
         height: 6,
         backgroundColor: 'rgba(255, 255, 255, 0.1)',
         borderRadius: 3,
         overflow: 'visible',
-        marginBottom: 8,
     },
     progressFill: {
         height: '100%',
@@ -864,6 +945,21 @@ const styles = StyleSheet.create({
     },
     controlDisabled: {
         opacity: 0.5,
+    },
+    auxControlBtn: {
+        width: 40,
+        height: 40,
+        justifyContent: 'center',
+        alignItems: 'center',
+        position: 'relative',
+    },
+    repeatOneBadge: {
+        position: 'absolute',
+        right: 4,
+        bottom: 6,
+        fontSize: 10,
+        fontWeight: '700',
+        color: '#3B82F6',
     },
     mainPlayBtn: {
         shadowColor: '#3B82F6',

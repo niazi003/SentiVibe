@@ -70,12 +70,12 @@ function savePreferences(userId, prefs) {
 
   const errors = [];
 
-  // Validate genres — must be array, 1-13 items
+  // Validate genres — must be array, 0-13 items (0 = user cleared preferences)
   if (prefs.genres !== undefined) {
     if (!Array.isArray(prefs.genres)) {
       errors.push('genres must be an array');
-    } else if (prefs.genres.length < 1 || prefs.genres.length > 13) {
-      errors.push('genres must have 1-13 entries');
+    } else if (prefs.genres.length > 13) {
+      errors.push('genres cannot exceed 13 entries');
     }
   }
 
@@ -112,6 +112,7 @@ function savePreferences(userId, prefs) {
   }
 
   if (errors.length > 0) {
+    console.warn(`[Preferences] Validation failed for user ${userId}:`, errors);
     return { success: false, errors };
   }
 

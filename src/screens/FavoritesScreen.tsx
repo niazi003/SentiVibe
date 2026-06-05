@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/Feather';
 import { AppContext } from '../context/AppContext';
+import { usePlayer } from '../context/PlayerContext';
 import { NavigationProp, MediaItem } from '../types';
 import { GlassCard, YouTubePlayer, extractYouTubeId } from '../components';
 import { ICON_STYLE } from '../constants';
@@ -17,6 +18,7 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
 export const FavoritesScreen: React.FC = () => {
     const navigation = useNavigation<NavigationProp>();
     const { favorites, toggleFavorite, isFavorite } = useContext(AppContext);
+    const { playTrack, setVideoMode } = usePlayer();
     const [activeTab, setActiveTab] = useState<'Music' | 'Movie'>('Music');
     const [expandedTrailerId, setExpandedTrailerId] = useState<number | null>(null);
 
@@ -31,10 +33,17 @@ export const FavoritesScreen: React.FC = () => {
     };
 
     const handlePlay = (item: MediaItem) => {
+        const index = currentData.findIndex((entry) => entry.id === item.id);
+        const nextItems = currentData.slice(index + 1);
+        const currentItem = { ...item, type: activeTab };
+
+        setVideoMode(item.type === 'Video');
+        playTrack(currentItem, nextItems);
+
         navigation.navigate('Player', {
-            item,
-            queue: currentData,
-            type: activeTab
+            item: currentItem,
+            queue: nextItems,
+            type: activeTab,
         });
     };
 

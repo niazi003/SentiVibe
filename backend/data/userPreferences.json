@@ -1,23 +1,16 @@
 {
   "dya0byb9dctyv728ij7nmsvvp": {
-    "genres": [
-      "rock",
-      "r&b"
-    ],
-    "favoriteArtists": [
-      "Hassan Raheem",
-      "Atif Aslam",
-      "Abrar Ul Haq"
-    ],
+    "genres": [],
+    "favoriteArtists": [],
     "energyPreference": {
       "sad": "low",
       "angry": "high",
       "calm": "low"
     },
-    "languagePreference": "urdu+hindi",
+    "languagePreference": "no preference",
     "decadePreference": "no preference",
     "onboardingComplete": true,
-    "updatedAt": "2026-06-05T14:11:09.213Z",
+    "updatedAt": "2026-06-05T16:00:13.464Z",
     "movieGenres": [],
     "movieNightVibe": "no preference"
   }

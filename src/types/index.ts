@@ -117,6 +117,8 @@ export interface ApiResponse<T> {
     loading: boolean;
 }
 
+export type RepeatMode = 'off' | 'all' | 'one';
+
 /**
  * PlayerState — global player state managed by PlayerContext.
  */
@@ -124,6 +126,10 @@ export interface PlayerState {
     currentTrack: MediaItem | null;
     queue: MediaItem[];
     history: MediaItem[];
+    originalPlaylist: MediaItem[];
+    isShuffle: boolean;
+    repeatMode: RepeatMode;
+    playEpoch: number;
     isPlaying: boolean;
     isVideoMode: boolean;
     currentTime: number;     // seconds

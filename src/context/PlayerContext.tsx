@@ -7,6 +7,7 @@
  * 
  * Features:
  * - Current track, queue, and history management
+ * - Shuffle and repeat (loop) playlist controls
  * - Play/pause/next/previous controls
  * - Video/audio mode toggle
  * - Persists last played track to AsyncStorage
@@ -16,6 +17,7 @@
 import React, { createContext, useContext, useReducer, useEffect, ReactNode } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { MediaItem, PlayerState } from '../types';
+import { getUnplayedTracks, shufflePlaylist } from '../utils/playlist';
 
 const LAST_PLAYED_KEY = 'sentivibe_last_played';
 
@@ -27,6 +29,10 @@ type PlayerAction =
     | { type: 'SET_PLAYING'; isPlaying: boolean }
     | { type: 'NEXT' }
     | { type: 'PREVIOUS' }
+    | { type: 'TRACK_ENDED' }
+    | { type: 'REPLAY_CURRENT' }
+    | { type: 'TOGGLE_SHUFFLE' }
+    | { type: 'CYCLE_REPEAT' }
     | { type: 'SET_VIDEO_MODE'; isVideo: boolean }
     | { type: 'SET_TIME'; currentTime: number; duration: number }
     | { type: 'PLAY_FROM_QUEUE'; track: MediaItem }
@@ -38,28 +44,76 @@ const initialState: PlayerState = {
     currentTrack: null,
     queue: [],
     history: [],
+    originalPlaylist: [],
+    isShuffle: false,
+    repeatMode: 'off',
+    playEpoch: 0,
     isPlaying: false,
     isVideoMode: false,
     currentTime: 0,
     duration: 0,
 };
 
+
+function advanceToNextTrack(state: PlayerState): PlayerState {
+    if (state.queue.length > 0) {
+        return {
+            ...state,
+            currentTrack: state.queue[0],
+            queue: state.queue.slice(1),
+            history: state.currentTrack
+                ? [...state.history, state.currentTrack]
+                : state.history,
+            isPlaying: true,
+            currentTime: 0,
+            duration: 0,
+        };
+    }
+
+    if (state.repeatMode === 'all' && state.originalPlaylist.length > 0) {
+        const orderedPlaylist = state.isShuffle
+            ? shufflePlaylist(state.originalPlaylist)
+            : [...state.originalPlaylist];
+        const [nextTrack, ...rest] = orderedPlaylist;
+
+        return {
+            ...state,
+            currentTrack: nextTrack,
+            queue: rest,
+            history: state.currentTrack
+                ? [...state.history, state.currentTrack]
+                : state.history,
+            isPlaying: true,
+            currentTime: 0,
+            duration: 0,
+        };
+    }
+
+    return { ...state, isPlaying: false };
+}
+
 // ---- Reducer ----
 // All state transitions in one place — easy to debug and test
 function playerReducer(state: PlayerState, action: PlayerAction): PlayerState {
     switch (action.type) {
-        case 'PLAY_TRACK':
+        case 'PLAY_TRACK': {
+            const upcomingQueue = action.queue || [];
+            const originalPlaylist = [action.track, ...upcomingQueue];
+            const queue = state.isShuffle
+                ? shufflePlaylist(upcomingQueue)
+                : upcomingQueue;
+
             return {
                 ...state,
                 currentTrack: action.track,
-                queue: action.queue || [],
-                history: state.currentTrack
-                    ? [...state.history, state.currentTrack]
-                    : state.history,
-                isPlaying: false,  // Don't claim playing until confirmed by Spotify/YT state poll
+                queue,
+                originalPlaylist,
+                history: [],
+                isPlaying: false,
                 currentTime: 0,
                 duration: 0,
             };
+        }
 
         case 'PAUSE':
             return { ...state, isPlaying: false };
@@ -71,14 +125,25 @@ function playerReducer(state: PlayerState, action: PlayerAction): PlayerState {
             return { ...state, isPlaying: action.isPlaying };
 
         case 'NEXT':
-            if (state.queue.length === 0) return state;
+            return advanceToNextTrack(state);
+
+        case 'TRACK_ENDED':
+            if (state.repeatMode === 'one' && state.currentTrack) {
+                return {
+                    ...state,
+                    playEpoch: state.playEpoch + 1,
+                    isPlaying: true,
+                    currentTime: 0,
+                    duration: 0,
+                };
+            }
+            return advanceToNextTrack(state);
+
+        case 'REPLAY_CURRENT':
+            if (!state.currentTrack) return state;
             return {
                 ...state,
-                currentTrack: state.queue[0],
-                queue: state.queue.slice(1),
-                history: state.currentTrack
-                    ? [...state.history, state.currentTrack]
-                    : state.history,
+                playEpoch: state.playEpoch + 1,
                 isPlaying: true,
                 currentTime: 0,
                 duration: 0,
@@ -98,6 +163,34 @@ function playerReducer(state: PlayerState, action: PlayerAction): PlayerState {
                 currentTime: 0,
                 duration: 0,
             };
+
+        case 'TOGGLE_SHUFFLE': {
+            const enablingShuffle = !state.isShuffle;
+            if (enablingShuffle) {
+                return {
+                    ...state,
+                    isShuffle: true,
+                    queue: shufflePlaylist(state.queue),
+                };
+            }
+
+            return {
+                ...state,
+                isShuffle: false,
+                queue: getUnplayedTracks(
+                    state.originalPlaylist,
+                    state.currentTrack,
+                    state.history,
+                ),
+            };
+        }
+
+        case 'CYCLE_REPEAT': {
+            const modes = ['off', 'all', 'one'] as const;
+            const currentIndex = modes.indexOf(state.repeatMode);
+            const nextMode = modes[(currentIndex + 1) % modes.length];
+            return { ...state, repeatMode: nextMode };
+        }
 
         // Toggle video/audio mode WITHOUT restarting playback
         case 'SET_VIDEO_MODE':
@@ -156,6 +249,10 @@ interface PlayerContextType {
     setPlaying: (isPlaying: boolean) => void;
     next: () => void;
     previous: () => void;
+    onTrackEnded: () => void;
+    replayCurrent: () => void;
+    toggleShuffle: () => void;
+    cycleRepeat: () => void;
     setVideoMode: (isVideo: boolean) => void;
     setTime: (currentTime: number, duration: number) => void;
     playFromQueue: (track: MediaItem) => void;
@@ -199,6 +296,10 @@ export const PlayerProvider: React.FC<{ children: ReactNode }> = ({ children }) 
         setPlaying: (isPlaying) => dispatch({ type: 'SET_PLAYING', isPlaying }),
         next: () => dispatch({ type: 'NEXT' }),
         previous: () => dispatch({ type: 'PREVIOUS' }),
+        onTrackEnded: () => dispatch({ type: 'TRACK_ENDED' }),
+        replayCurrent: () => dispatch({ type: 'REPLAY_CURRENT' }),
+        toggleShuffle: () => dispatch({ type: 'TOGGLE_SHUFFLE' }),
+        cycleRepeat: () => dispatch({ type: 'CYCLE_REPEAT' }),
         setVideoMode: (isVideo) => dispatch({ type: 'SET_VIDEO_MODE', isVideo }),
         setTime: (currentTime, duration) => dispatch({ type: 'SET_TIME', currentTime, duration }),
         playFromQueue: (track) => dispatch({ type: 'PLAY_FROM_QUEUE', track }),

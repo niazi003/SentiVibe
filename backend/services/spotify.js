@@ -8,6 +8,10 @@
  *   Step 2 → Fall back to mood keyword search (client credentials)
  *   Step 3 → Fall back to FALLBACK_DATA (static, guaranteed YouTube IDs)
  *
+ * Neutral + no saved preferences:
+ *   ~40 tracks from chart search (Today's Top Hits, Bollywood, Pakistan, India queries)
+ *   ~20 tracks randomized from the user's top ~100 Spotify listening-history tracks
+ *
  * NOTE: Spotify's Recommendations API, audio-features, audio-analysis,
  * browse/featured-playlists, and related-artists endpoints are ALL deprecated
  * as of November 27, 2024. "Made For You" playlists are never exposed via API.
@@ -56,6 +60,38 @@ const RECOMMENDATION_TOTAL = 60;
 const EMOTION_ONLY_SLOTS = 10;
 /** Reserved slots for the user's own Spotify listening history (fills when artist slots are short) */
 const TOP_TRACK_SLOTS = 10;
+/** Neutral + no prefs: chart search pools vs user's own top tracks */
+const NEUTRAL_CHART_PLAYLIST_SLOTS = 40;
+const NEUTRAL_USER_TOP_SLOTS = 20;
+const NEUTRAL_USER_TOP_POOL_SIZE = 100;
+
+/**
+ * Chart sources for neutral mood when the user has no saved preferences.
+ * Spotify blocks third-party apps from reading editorial playlist tracks (403),
+ * so we approximate each chart via weighted Search API queries instead.
+ */
+const NEUTRAL_CURATED_CHART_SOURCES = [
+  {
+    name: "Today's Top Hits",
+    share: 0.5,
+    queries: ['top hits today', 'global hits 2026', 'chart toppers', 'viral pop hits'],
+  },
+  {
+    name: 'Bollywood Top 50',
+    share: 0.17,
+    queries: ['bollywood hits', 'hindi chart hits', 'arijit singh popular', 'desi pop hits'],
+  },
+  {
+    name: 'Top Songs Pakistan',
+    share: 0.17,
+    queries: ['pakistan top hits', 'punjabi hits pakistan', 'urdu hits', 'desi punjabi chart'],
+  },
+  {
+    name: 'Top 50 - India',
+    share: 0.16,
+    queries: ['india top hits', 'hindi pop hits', 'bollywood chart', 'ap dhillon hits'],
+  },
+];
 
 const JUNK_KEYWORDS = [
   'karaoke', 'piano cover', 'cover version', 'backing track', 'tribute', 'made popular',
@@ -869,6 +905,186 @@ async function buildPreferenceOnlyTracks(userApi, userPrefs, limit) {
 }
 
 /**
+ * Run search queries and return a deduped pool of raw Spotify track objects.
+ */
+async function fetchSearchTrackPool(api, queries, maxTracks, market) {
+  const perQuery = Math.min(20, Math.max(10, Math.ceil(maxTracks / Math.max(1, queries.length)) + 5));
+  const results = await Promise.all(
+    queries.map(async (query) => {
+      try {
+        const result = await searchTracksCompat(api, query, { limit: perQuery, market });
+        return result.body.tracks?.items || [];
+      } catch (err) {
+        console.warn(`[Spotify] Chart search failed: "${query}"`, err.message || err);
+        return [];
+      }
+    })
+  );
+
+  const seen = new Set();
+  const pool = [];
+  for (const tracks of results) {
+    for (const track of tracks) {
+      if (track?.id && !seen.has(track.id)) {
+        seen.add(track.id);
+        pool.push(track);
+      }
+    }
+  }
+  return pool;
+}
+
+/**
+ * Pick tracks approximating Today's Top Hits + Bollywood / Pakistan / India charts via Search API.
+ * Editorial playlist track endpoints return 403 for third-party apps (Feb 2026 policy).
+ */
+async function pickCuratedChartSearchTracks(api, count, market, seenIds, seenTitles) {
+  const pools = await Promise.all(
+    NEUTRAL_CURATED_CHART_SOURCES.map(async (cfg) => {
+      const tracks = shuffleArray(await fetchSearchTrackPool(api, cfg.queries, 50, market));
+      console.log(`[Spotify] Chart search "${cfg.name}": ${tracks.length} track(s) in pool`);
+      return { ...cfg, tracks };
+    })
+  );
+
+  const picked = [];
+
+  for (const pool of pools) {
+    const target = Math.max(1, Math.round(count * pool.share));
+    let added = 0;
+    for (const track of pool.tracks) {
+      if (added >= target || picked.length >= count) break;
+      const before = picked.length;
+      ingestTrackObjects([track], seenIds, seenTitles, null, picked);
+      if (picked.length > before) added += 1;
+    }
+  }
+
+  if (picked.length < count) {
+    const overflow = shuffleArray(pools.flatMap((p) => p.tracks));
+    for (const track of overflow) {
+      if (picked.length >= count) break;
+      ingestTrackObjects([track], seenIds, seenTitles, null, picked);
+    }
+  }
+
+  return picked.slice(0, count);
+}
+
+/**
+ * Random sample from the user's top ~100 tracks (short + medium + long term pools).
+ * @param {SpotifyWebApi} userApi
+ * @param {number} count
+ * @param {Set<string>} seenIds
+ * @param {Set<string>} seenTitles
+ */
+async function pickRandomUserTopTracks(userApi, count, seenIds, seenTitles) {
+  const rawTracks = [];
+  const poolSeenIds = new Set();
+
+  for (const timeRange of ['short_term', 'medium_term', 'long_term']) {
+    try {
+      const res = await userApi.getMyTopTracks({ limit: 50, time_range: timeRange });
+      for (const track of res.body?.items || []) {
+        if (!track?.id || poolSeenIds.has(track.id)) continue;
+        poolSeenIds.add(track.id);
+        rawTracks.push(track);
+      }
+    } catch (err) {
+      console.warn(`[Spotify] getMyTopTracks(${timeRange}) failed:`, err.message || err);
+    }
+  }
+
+  const poolRows = [];
+  const poolSeenTitles = new Set();
+  ingestTrackObjects(rawTracks, new Set(), poolSeenTitles, null, poolRows);
+  const randomizedPool = shuffleArray(poolRows).slice(0, NEUTRAL_USER_TOP_POOL_SIZE);
+
+  console.log(
+    `[Spotify] User top pool: ${randomizedPool.length} unique track(s) (target pool ${NEUTRAL_USER_TOP_POOL_SIZE})`
+  );
+
+  const picked = [];
+  for (const row of randomizedPool) {
+    if (picked.length >= count) break;
+    if (seenIds.has(row.spotifyId)) continue;
+    seenIds.add(row.spotifyId);
+    const titleKey = row.title.toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (seenTitles.has(titleKey)) continue;
+    seenTitles.add(titleKey);
+    picked.push(row);
+  }
+
+  console.log(`[Spotify] User top picks: ${picked.length}/${count} randomized from pool`);
+  return picked;
+}
+
+/**
+ * Neutral mood with no saved preferences:
+ *   ~40 tracks from chart search (Today's Top Hits + Bollywood / Pakistan / India)
+ *   ~20 tracks randomized from the user's top ~100 listening-history tracks
+ */
+async function buildNeutralChartMix(userApi, market, limit = RECOMMENDATION_TOTAL) {
+  const chartSlots = Math.round(limit * (NEUTRAL_CHART_PLAYLIST_SLOTS / RECOMMENDATION_TOTAL));
+  const userTopSlots = Math.max(0, limit - chartSlots);
+  const seenIds = new Set();
+  const seenTitles = new Set();
+
+  console.log(
+    `[Spotify] Neutral chart mix: ${chartSlots} chart search + ${userTopSlots} user top (limit=${limit}, market=${market})`
+  );
+
+  let fromCharts = await pickCuratedChartSearchTracks(
+    userApi,
+    chartSlots,
+    market,
+    seenIds,
+    seenTitles
+  );
+
+  let fromUser = [];
+  if (userTopSlots > 0) {
+    fromUser = await pickRandomUserTopTracks(userApi, userTopSlots, seenIds, seenTitles);
+  }
+
+  if (fromUser.length < userTopSlots) {
+    const need = userTopSlots - fromUser.length;
+    console.log(`[Spotify] User top short by ${need} — topping up from chart search`);
+    const topUp = await pickCuratedChartSearchTracks(userApi, need, market, seenIds, seenTitles);
+    fromUser = fromUser.concat(topUp);
+  }
+
+  if (fromCharts.length < chartSlots) {
+    const need = chartSlots - fromCharts.length;
+    const topUp = await pickCuratedChartSearchTracks(userApi, need, market, seenIds, seenTitles);
+    fromCharts = fromCharts.concat(topUp);
+  }
+
+  let merged = shuffleArray([...fromCharts, ...fromUser]).slice(0, limit);
+
+  if (merged.length < limit) {
+    const need = limit - merged.length;
+    console.log(`[Spotify] Chart mix short by ${need} — topping up with neutral mood search`);
+    const appApi = await initSpotify();
+    const exclude = new Set(merged.map((r) => r.spotifyId).filter(Boolean));
+    const topUp = await getTracksFromMoodSearchOnly(appApi, 'neutral', need, exclude, market);
+    merged = merged.concat(topUp).slice(0, limit);
+  }
+
+  const tracks = merged.map(({ _popularity, ...t }) => t);
+
+  logSongSource(
+    `Neutral: ${tracks.length} track(s) — ${fromCharts.length} chart search + ${fromUser.length} randomized user top (source=neutral-chart-mix)`
+  );
+
+  return {
+    tracks,
+    source: 'neutral-chart-mix',
+    playlist: { name: "Today's Top Hits + Bollywood + Pakistan" },
+  };
+}
+
+/**
  * Neutral mood: preference-based picks when onboarding prefs exist, else popular chart hits.
  * Skips mood-matching and Spotify listening-history personalization.
  */
@@ -877,11 +1093,13 @@ async function getNeutralRecommendations(userAccessToken, limit) {
     try {
       const userApi = new SpotifyWebApi({ accessToken: userAccessToken });
       let userId = null;
+      let market = 'US';
       try {
         const me = await userApi.getMe();
         userId = me.body?.id || null;
+        market = me.body?.country || 'US';
       } catch {
-        console.warn('[Spotify] Could not fetch user profile for neutral preference lookup');
+        console.warn('[Spotify] Could not fetch user profile for neutral flow');
       }
 
       const userPrefs = userId ? getPreferences(userId) : {};
@@ -894,12 +1112,52 @@ async function getNeutralRecommendations(userAccessToken, limit) {
           return { tracks: prefTracks.slice(0, limit), source: 'preference-only', playlist: null };
         }
         logSongSource(
-          `Neutral: preference search returned ${prefTracks.length} track(s) — falling back to popular`
+          `Neutral: preference search returned ${prefTracks.length} track(s) — falling back to chart mix`
         );
       }
+
+      const chartMix = await buildNeutralChartMix(userApi, market, limit);
+      if (chartMix.tracks.length >= 3) {
+        return chartMix;
+      }
+      logSongSource(
+        `Neutral: chart mix returned ${chartMix.tracks.length} track(s) — falling back to search`
+      );
     } catch (err) {
-      console.warn('[Spotify] Neutral preference flow failed:', err.message || err);
+      console.warn('[Spotify] Neutral chart/preference flow failed:', err.message || err);
     }
+  }
+
+  try {
+    const api = await initSpotify();
+    const seenIds = new Set();
+    const seenTitles = new Set();
+    const fromCharts = await pickCuratedChartSearchTracks(
+      api,
+      limit,
+      'US',
+      seenIds,
+      seenTitles
+    );
+    if (fromCharts.length >= 3) {
+      let merged = shuffleArray(fromCharts).slice(0, limit);
+      if (merged.length < limit) {
+        const exclude = new Set(merged.map((r) => r.spotifyId).filter(Boolean));
+        const topUp = await getTracksFromMoodSearchOnly(api, 'neutral', limit - merged.length, exclude, 'US');
+        merged = merged.concat(topUp).slice(0, limit);
+      }
+      const tracks = merged.map(({ _popularity, ...t }) => t);
+      logSongSource(
+        `Neutral: ${tracks.length} track(s) from chart search only, no user token (source=neutral-chart-mix)`
+      );
+      return {
+        tracks,
+        source: 'neutral-chart-mix',
+        playlist: { name: "Today's Top Hits + Bollywood + Pakistan" },
+      };
+    }
+  } catch (err) {
+    console.warn('[Spotify] Neutral chart-search-only flow failed:', err.message || err);
   }
 
   try {
