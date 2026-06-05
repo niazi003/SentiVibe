@@ -1,5 +1,5 @@
 import React from 'react';
-import { TouchableOpacity, Text, StyleSheet, ViewStyle, TextStyle } from 'react-native';
+import { TouchableOpacity, Text, StyleSheet, ViewStyle, TextStyle, View } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 
 type ButtonVariant = 'primary' | 'secondary' | 'spotify' | 'outline' | 'ghost' | 'danger';
@@ -10,6 +10,7 @@ interface ButtonProps {
     variant?: ButtonVariant;
     style?: ViewStyle;
     textStyle?: TextStyle;
+    disabled?: boolean;
 }
 
 export const Button: React.FC<ButtonProps> = ({
@@ -17,8 +18,10 @@ export const Button: React.FC<ButtonProps> = ({
     onPress,
     variant = 'primary',
     style,
-    textStyle
+    textStyle,
+    disabled = false,
 }) => {
+    const isDisabled = disabled;
     const getButtonStyles = () => {
         switch (variant) {
             case 'primary':
@@ -54,8 +57,22 @@ export const Button: React.FC<ButtonProps> = ({
     };
 
     if (variant === 'primary') {
+        if (isDisabled) {
+            return (
+                <View style={[styles.baseButton, styles.primaryDisabledButton, style]}>
+                    <Text style={[styles.baseText, styles.primaryDisabledText, textStyle]}>
+                        {children}
+                    </Text>
+                </View>
+            );
+        }
+
         return (
-            <TouchableOpacity onPress={onPress} activeOpacity={0.8} style={style}>
+            <TouchableOpacity
+                onPress={onPress}
+                activeOpacity={0.8}
+                style={style}
+            >
                 <LinearGradient
                     colors={['#2563EB', '#4F46E5']}
                     start={{ x: 0, y: 0 }}
@@ -70,7 +87,12 @@ export const Button: React.FC<ButtonProps> = ({
 
     if (variant === 'secondary') {
         return (
-            <TouchableOpacity onPress={onPress} activeOpacity={0.8} style={style}>
+            <TouchableOpacity
+                onPress={onPress}
+                activeOpacity={0.8}
+                style={[style, isDisabled && styles.disabled]}
+                disabled={isDisabled}
+            >
                 <LinearGradient
                     colors={['#38BDF8', '#3B82F6']}
                     start={{ x: 0, y: 0 }}
@@ -87,7 +109,8 @@ export const Button: React.FC<ButtonProps> = ({
         <TouchableOpacity
             onPress={onPress}
             activeOpacity={0.8}
-            style={[styles.baseButton, getButtonStyles(), style]}
+            style={[styles.baseButton, getButtonStyles(), style, isDisabled && styles.disabled]}
+            disabled={isDisabled}
         >
             <Text style={[styles.baseText, getTextStyles(), textStyle]}>{children}</Text>
         </TouchableOpacity>
@@ -117,6 +140,14 @@ const styles = StyleSheet.create({
     },
     primaryText: {
         color: '#FFFFFF',
+    },
+    primaryDisabledButton: {
+        backgroundColor: '#1E293B',
+        borderWidth: 1,
+        borderColor: '#334155',
+    },
+    primaryDisabledText: {
+        color: '#64748B',
     },
     secondaryButton: {
         shadowColor: '#38BDF8',
@@ -157,5 +188,8 @@ const styles = StyleSheet.create({
     },
     dangerText: {
         color: '#EF4444',
+    },
+    disabled: {
+        opacity: 0.5,
     },
 });

@@ -1,10 +1,10 @@
 import React, { useState, useContext } from 'react';
-import { View, Text, TextInput, StyleSheet, TouchableOpacity, ActivityIndicator, Platform } from 'react-native';
+import { View, Text, TextInput, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/Feather';
-import { GlassCard, Button } from '../components';
+import { GlassCard, Button, PasswordInput, PrivacyPolicyModal } from '../components';
 import { NavigationProp } from '../types';
 import { ICON_STYLE } from '../constants';
 import { AuthContext } from '../context/AuthContext';
@@ -17,9 +17,22 @@ export const SignupScreen: React.FC = () => {
     const [password, setPassword] = useState('');
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
+    const [privacyAccepted, setPrivacyAccepted] = useState(false);
+    const [privacyModalVisible, setPrivacyModalVisible] = useState(false);
+
+    const openPrivacyModal = () => {
+        setPrivacyModalVisible(true);
+    };
+
+    const handlePrivacyCheckboxPress = () => {
+        if (privacyAccepted) {
+            setPrivacyAccepted(false);
+            return;
+        }
+        openPrivacyModal();
+    };
 
     const handleSignup = async () => {
-        // Basic validation
         if (!name.trim()) {
             setError('Please enter your name.');
             return;
@@ -32,14 +45,16 @@ export const SignupScreen: React.FC = () => {
             setError('Please enter a password.');
             return;
         }
+        if (!privacyAccepted) {
+            setError('Please read and accept the Privacy Policy to continue.');
+            return;
+        }
 
         setError('');
         setLoading(true);
 
         try {
             await signUp(name.trim(), email.trim().toLowerCase(), password);
-            // Auth state listener in AuthContext will update user
-            // Navigate to onboarding for new users
             navigation.reset({
                 index: 0,
                 routes: [{ name: 'Onboarding' }],
@@ -108,21 +123,39 @@ export const SignupScreen: React.FC = () => {
 
                     <View style={styles.inputGroup}>
                         <Text style={styles.label}>Password</Text>
-                        <TextInput
-                            style={styles.input}
+                        <PasswordInput
                             value={password}
                             onChangeText={setPassword}
                             placeholder="Create a password (min 6 chars)"
-                            placeholderTextColor="#475569"
-                            secureTextEntry
                             editable={!loading}
                         />
+                    </View>
+
+                    <View style={styles.privacyRow}>
+                        <TouchableOpacity
+                            style={[
+                                styles.checkbox,
+                                privacyAccepted && styles.checkboxChecked,
+                            ]}
+                            onPress={handlePrivacyCheckboxPress}
+                            disabled={loading}
+                        >
+                            {privacyAccepted ? (
+                                <Icon name="check" size={14} color="#FFFFFF" style={ICON_STYLE} />
+                            ) : null}
+                        </TouchableOpacity>
+                        <Text style={styles.privacyText}>
+                            I agree to the{' '}
+                            <Text style={styles.privacyLink} onPress={openPrivacyModal}>
+                                Privacy Policy
+                            </Text>
+                        </Text>
                     </View>
 
                     <Button
                         onPress={handleSignup}
                         style={styles.submitButton}
-                        disabled={loading}
+                        disabled={loading || !privacyAccepted}
                     >
                         {loading ? (
                             <ActivityIndicator color="#FFFFFF" size="small" />
@@ -139,6 +172,12 @@ export const SignupScreen: React.FC = () => {
                     </TouchableOpacity>
                 </View>
             </KeyboardAwareScrollView>
+
+            <PrivacyPolicyModal
+                visible={privacyModalVisible}
+                onClose={() => setPrivacyModalVisible(false)}
+                onAccept={() => setPrivacyAccepted(true)}
+            />
         </SafeAreaView>
     );
 };
@@ -215,6 +254,37 @@ const styles = StyleSheet.create({
         padding: 16,
         fontSize: 16,
         color: '#FFFFFF',
+    },
+    privacyRow: {
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        gap: 12,
+        marginTop: 4,
+    },
+    checkbox: {
+        width: 22,
+        height: 22,
+        borderRadius: 6,
+        borderWidth: 2,
+        borderColor: '#475569',
+        backgroundColor: 'rgba(15, 23, 42, 0.5)',
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginTop: 1,
+    },
+    checkboxChecked: {
+        backgroundColor: '#2563EB',
+        borderColor: '#2563EB',
+    },
+    privacyText: {
+        flex: 1,
+        fontSize: 14,
+        lineHeight: 20,
+        color: '#94A3B8',
+    },
+    privacyLink: {
+        color: '#60A5FA',
+        fontWeight: '700',
     },
     submitButton: {
         marginTop: 8,

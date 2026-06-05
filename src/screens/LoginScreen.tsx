@@ -4,7 +4,7 @@ import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/Feather';
-import { GlassCard, Button } from '../components';
+import { GlassCard, Button, PasswordInput } from '../components';
 import { NavigationProp } from '../types';
 import { ICON_STYLE } from '../constants';
 import { AuthContext } from '../context/AuthContext';
@@ -108,13 +108,10 @@ export const LoginScreen: React.FC = () => {
 
                     <View style={styles.inputGroup}>
                         <Text style={styles.label}>Password</Text>
-                        <TextInput
-                            style={styles.input}
+                        <PasswordInput
                             value={password}
                             onChangeText={setPassword}
                             placeholder="Enter your password"
-                            placeholderTextColor="#475569"
-                            secureTextEntry
                             editable={!loading}
                         />
                     </View>
