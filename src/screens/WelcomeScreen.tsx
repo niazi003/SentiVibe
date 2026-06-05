@@ -9,7 +9,7 @@ import { useSpotify } from '../context/SpotifyContext';
 
 export const WelcomeScreen: React.FC = () => {
     const navigation = useNavigation<NavigationProp>();
-    const { isConnected: spotifyConnected, isConnecting, connect: handleSpotifyConnect } = useSpotify();
+    const { isAuthed: spotifyConnected, isConnecting, connect: handleSpotifyConnect } = useSpotify();
 
     return (
         <SafeAreaView style={styles.container} edges={['top']}>

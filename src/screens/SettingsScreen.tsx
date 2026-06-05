@@ -1,16 +1,18 @@
 import React, { useContext } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, CommonActions } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/Feather';
 import { GlassCard, Button } from '../components';
 import { NavigationProp } from '../types';
 import { AppContext } from '../context/AppContext';
+import { useSpotify } from '../context/SpotifyContext';
 import { ICON_STYLE } from '../constants';
 
 export const SettingsScreen: React.FC = () => {
     const navigation = useNavigation<NavigationProp>();
     const { resetChat } = useContext(AppContext);
+    const { isAuthed, isConnecting, connect, disconnect } = useSpotify();
 
     const handleLogout = () => {
         resetChat();
@@ -37,6 +39,36 @@ export const SettingsScreen: React.FC = () => {
             </View>
 
             <View style={styles.content}>
+                <GlassCard style={styles.spotifyCard}>
+                    <View style={styles.spotifyHeader}>
+                        <Icon name="music" size={20} color="#1DB954" style={ICON_STYLE} />
+                        <Text style={styles.spotifyTitle}>Spotify</Text>
+                    </View>
+                    <Text style={styles.spotifyDescription}>
+                        {isAuthed
+                            ? 'Connected — your saved preferences sync automatically for personalized music.'
+                            : 'Connect Spotify to personalize music recommendations and enable playback control.'}
+                    </Text>
+                    <Button
+                        variant={isAuthed ? 'outline' : 'spotify'}
+                        onPress={isAuthed ? disconnect : connect}
+                        style={styles.spotifyButton}
+                    >
+                        {isConnecting ? (
+                            <>
+                                <ActivityIndicator size="small" color={isAuthed ? '#1DB954' : '#000'} />
+                                {' '}Connecting...
+                            </>
+                        ) : isAuthed ? (
+                            <>
+                                <Icon name="check" size={18} color="#1DB954" /> Connected — Tap to Disconnect
+                            </>
+                        ) : (
+                            'Connect Spotify'
+                        )}
+                    </Button>
+                </GlassCard>
+
                 <GlassCard style={styles.settingsCard}>
                     <TouchableOpacity style={styles.settingsItem}>
                         <View style={styles.settingsLeft}>
@@ -120,6 +152,31 @@ const styles = StyleSheet.create({
     },
     content: {
         padding: 24,
+    },
+    spotifyCard: {
+        borderRadius: 16,
+        padding: 16,
+        marginBottom: 16,
+    },
+    spotifyHeader: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        marginBottom: 8,
+    },
+    spotifyTitle: {
+        fontSize: 16,
+        fontWeight: '700',
+        color: '#FFFFFF',
+    },
+    spotifyDescription: {
+        fontSize: 13,
+        color: '#94A3B8',
+        lineHeight: 18,
+        marginBottom: 12,
+    },
+    spotifyButton: {
+        marginTop: 4,
     },
     settingsCard: {
         borderRadius: 16,

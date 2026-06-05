@@ -1,16 +1,18 @@
 import React, { useContext } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/Feather';
 import { GlassCard, Button } from '../components';
 import { NavigationProp } from '../types';
 import { AuthContext } from '../context/AuthContext';
+import { useSpotify } from '../context/SpotifyContext';
 import { ICON_STYLE } from '../constants';
 
 export const ProfileScreen: React.FC = () => {
     const navigation = useNavigation<NavigationProp>();
     const { user, logOut } = useContext(AuthContext);
+    const { isAuthed, isConnecting, connect } = useSpotify();
 
     const handleLogout = async () => {
         try {
@@ -60,12 +62,28 @@ export const ProfileScreen: React.FC = () => {
                         <Icon name="music" size={24} color="#1DB954" style={ICON_STYLE} />
                     </View>
                     <View style={styles.spotifyInfo}>
-                        <Text style={styles.spotifyTitle}>Spotify Connected</Text>
-                        <Text style={styles.spotifySubtitle}>Syncing moods & playlists</Text>
+                        <Text style={styles.spotifyTitle}>
+                            {isAuthed ? 'Spotify Connected' : 'Spotify Not Connected'}
+                        </Text>
+                        <Text style={styles.spotifySubtitle}>
+                            {isAuthed
+                                ? 'Personalized music & playback enabled'
+                                : 'Connect in Settings for personalized picks'}
+                        </Text>
                     </View>
-                    <View style={styles.statusBadge}>
-                        <Text style={styles.statusText}>ACTIVE</Text>
-                    </View>
+                    {isAuthed ? (
+                        <View style={styles.statusBadge}>
+                            <Text style={styles.statusText}>ACTIVE</Text>
+                        </View>
+                    ) : (
+                        <Button variant="spotify" onPress={connect} style={styles.connectButton}>
+                            {isConnecting ? (
+                                <ActivityIndicator size="small" color="#000" />
+                            ) : (
+                                'Connect'
+                            )}
+                        </Button>
+                    )}
                 </GlassCard>
 
                 {/* Action Buttons */}
@@ -204,6 +222,11 @@ const styles = StyleSheet.create({
         fontSize: 10,
         fontWeight: '700',
         color: '#4ADE80',
+    },
+    connectButton: {
+        paddingHorizontal: 12,
+        paddingVertical: 8,
+        minHeight: 36,
     },
     actions: {
         gap: 12,

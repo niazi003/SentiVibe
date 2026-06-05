@@ -15,8 +15,12 @@ import {
   connectRemote,
   disconnectSpotify,
 } from '../services/spotify';
+import { syncPreferencesToBackend } from '../services/firestorePreferences';
 
 interface SpotifyContextType {
+  /** True when the user has a valid Spotify OAuth token (API + recommendations). */
+  isAuthed: boolean;
+  /** True when Spotify playback devices are reachable (in-app player control). */
   isConnected: boolean;
   isConnecting: boolean;
   connect: () => Promise<void>;
@@ -24,6 +28,7 @@ interface SpotifyContextType {
 }
 
 const SpotifyContext = createContext<SpotifyContextType>({
+  isAuthed: false,
   isConnected: false,
   isConnecting: false,
   connect: async () => {},
@@ -31,53 +36,69 @@ const SpotifyContext = createContext<SpotifyContextType>({
 });
 
 export const SpotifyProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
+  const [isAuthed, setIsAuthed] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
 
-  // NOTE: We previously handled browser-based OAuth via deep links.
-  // The current flow uses the native Spotify SDK (`SpotifyAuth.authorize`) instead,
-  // so we no longer rely on deep-link callbacks here.
+  const refreshConnectionState = useCallback(async (syncPrefs: boolean) => {
+    const authed = await isSpotifyAuthed();
+    setIsAuthed(authed);
 
-  // Auto-reconnect if previously authenticated
-  useEffect(() => {
-    (async () => {
-      const authed = await isSpotifyAuthed();
-      if (authed) {
-        console.log('[SpotifyContext] Previously authed, attempting reconnect');
-        const connected = await connectRemote();
-        setIsConnected(connected);
-      }
-    })();
+    if (!authed) {
+      setIsConnected(false);
+      return;
+    }
+
+    const connected = await connectRemote();
+    setIsConnected(connected);
+
+    if (syncPrefs) {
+      await syncPreferencesToBackend();
+    }
   }, []);
 
-  // Start the OAuth flow
+  // Restore Spotify session on launch (no Firebase re-login required)
+  useEffect(() => {
+    refreshConnectionState(true).catch((error) => {
+      console.warn('[SpotifyContext] Auto-reconnect failed:', error);
+    });
+  }, [refreshConnectionState]);
+
   const connect = useCallback(async () => {
     setIsConnecting(true);
     try {
       await startSpotifyAuth();
+      setIsAuthed(true);
+
+      // Push saved Firestore prefs to backend now that we have a Spotify token
+      const synced = await syncPreferencesToBackend();
+
       const connected = await connectRemote();
       setIsConnected(connected);
+
       if (!connected) {
         Alert.alert(
-          'Spotify Connection',
-          'Authenticated but could not connect to Spotify app. Make sure Spotify is installed and running.',
+          'Spotify Connected',
+          synced
+            ? 'Your preferences are synced. Open the Spotify app on this device for in-app playback control.'
+            : 'Spotify is linked. Set your preferences in Personalization Settings for personalized music picks.',
         );
       }
     } catch (error) {
       console.error('[SpotifyContext] Connect error:', error);
-      Alert.alert('Spotify', 'Could not open Spotify authorization page.');
+      Alert.alert('Spotify', 'Could not complete Spotify authorization. Please try again.');
     }
     setIsConnecting(false);
   }, []);
 
-  // Disconnect
   const disconnect = useCallback(async () => {
     await disconnectSpotify();
+    setIsAuthed(false);
     setIsConnected(false);
   }, []);
 
   return (
-    <SpotifyContext.Provider value={{ isConnected, isConnecting, connect, disconnect }}>
+    <SpotifyContext.Provider value={{ isAuthed, isConnected, isConnecting, connect, disconnect }}>
       {children}
     </SpotifyContext.Provider>
   );

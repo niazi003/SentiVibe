@@ -28,7 +28,7 @@ export interface UserPreferences {
  */
 export async function savePreferencesToFirestore(
   prefs: Partial<UserPreferences>,
-): Promise<{ success: boolean }> {
+): Promise<{ success: boolean; backendSynced?: boolean }> {
   try {
     const user = getCurrentUser();
     if (!user) return { success: false };
@@ -44,7 +44,8 @@ export async function savePreferencesToFirestore(
       { merge: true },
     );
 
-    // Spotify recommendations read from the backend JSON store (keyed by Spotify user id).
+    // Best-effort sync for Spotify-backed music recommendations (requires Spotify token).
+    // Firestore is the source of truth — do not fail the save if backend sync is unavailable.
     const backendResult = await savePreferencesToBackend({
       genres: prefs.genres,
       favoriteArtists: prefs.favoriteArtists,
@@ -57,12 +58,11 @@ export async function savePreferencesToFirestore(
 
     if (!backendResult.success) {
       console.warn(
-        '[Preferences] Firestore saved but backend sync failed — music picks may be stale until Spotify is connected',
+        '[Preferences] Firestore saved but backend sync failed — connect Spotify to personalize music picks',
       );
-      return { success: false };
     }
 
-    return { success: true };
+    return { success: true, backendSynced: backendResult.success };
   } catch (error) {
     console.warn('[Firestore] savePreferences failed:', error);
     return { success: false };
@@ -70,14 +70,15 @@ export async function savePreferencesToFirestore(
 }
 
 /**
- * Push Firestore preferences to the backend (for users who edited prefs before dual-write existed).
+ * Push Firestore preferences to the backend.
+ * Call after Spotify connects so music personalization works without re-login.
  */
-export async function syncPreferencesToBackend(): Promise<void> {
+export async function syncPreferencesToBackend(): Promise<boolean> {
   try {
     const prefs = await getPreferencesFromFirestore();
-    if (!prefs.onboardingComplete) return;
+    if (!prefs.onboardingComplete) return false;
 
-    await savePreferencesToBackend({
+    const result = await savePreferencesToBackend({
       genres: prefs.genres,
       favoriteArtists: prefs.favoriteArtists,
       energyPreference: prefs.energyPreference,
@@ -86,8 +87,17 @@ export async function syncPreferencesToBackend(): Promise<void> {
       movieGenres: prefs.movieGenres,
       movieNightVibe: prefs.movieNightVibe,
     });
+
+    if (result.success) {
+      console.log('[Preferences] Backend sync complete');
+    } else {
+      console.warn('[Preferences] Backend sync skipped or failed — Spotify token may be missing');
+    }
+
+    return result.success;
   } catch (error) {
     console.warn('[Preferences] syncPreferencesToBackend failed:', error);
+    return false;
   }
 }
 

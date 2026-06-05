@@ -21,6 +21,14 @@ const CACHE_KEY_PREFIX = 'sentivibe_recommendations_';
 const REQUEST_TIMEOUT = 45000; // 45 seconds - Spotify fallback APIs can take time
 const AI_TIMEOUT = 90000; // 90 seconds — LLM inference can be slow
 
+/** Headers sent on every backend request (ngrok free tier blocks clients without this). */
+function apiHeaders(extra: Record<string, string> = {}): Record<string, string> {
+  return {
+    'ngrok-skip-browser-warning': 'true',
+    ...extra,
+  };
+}
+
 // ─────────────────────────────────────────────────────────────
 // RECOMMENDATIONS
 // ─────────────────────────────────────────────────────────────
@@ -38,7 +46,7 @@ export async function fetchRecommendations(
     const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
 
     const spotifyToken = await getAccessToken().catch(() => null);
-    const headers: Record<string, string> = {};
+    const headers = apiHeaders();
     if (spotifyToken) {
       headers.Authorization = `Bearer ${spotifyToken}`;
     }
@@ -546,7 +554,7 @@ export async function getUserPreferences(): Promise<UserPreferences> {
     const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
 
     const response = await fetch(`${BASE_URL}/user/preferences`, {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: apiHeaders({ Authorization: `Bearer ${token}` }),
       signal: controller.signal,
     });
 
@@ -565,23 +573,30 @@ export async function getUserPreferences(): Promise<UserPreferences> {
 export async function saveUserPreferences(prefs: Partial<UserPreferences>): Promise<{ success: boolean }> {
   try {
     const token = await getAccessToken().catch(() => null);
-    if (!token) return { success: false };
+    if (!token) {
+      console.warn('[API] saveUserPreferences skipped — Spotify not connected');
+      return { success: false };
+    }
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
 
     const response = await fetch(`${BASE_URL}/user/preferences`, {
       method: 'POST',
-      headers: {
+      headers: apiHeaders({
         'Content-Type': 'application/json',
         Authorization: `Bearer ${token}`,
-      },
+      }),
       body: JSON.stringify(prefs),
       signal: controller.signal,
     });
 
     clearTimeout(timeoutId);
-    if (!response.ok) return { success: false };
+    if (!response.ok) {
+      const errorBody = await response.json().catch(() => ({}));
+      console.warn('[API] saveUserPreferences HTTP', response.status, errorBody);
+      return { success: false };
+    }
     return await response.json();
   } catch (error) {
     console.warn('[API] saveUserPreferences failed:', error);
