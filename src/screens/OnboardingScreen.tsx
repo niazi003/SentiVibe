@@ -2,7 +2,7 @@
  * OnboardingScreen — Personalization Setup Wizard
  *
  * Collects music preferences (genres, artists, energy, language) and movie tastes
- * (favorite film genres, movie-night vibe). Results are POSTed to /api/user/preferences.
+ * (favorite film genres, movie-night vibe). Saved to Firestore and synced to the backend for Spotify.
  * Shown after first Spotify login (when onboardingComplete is false).
  * Re-opened from Profile or Settings with isUpdate to edit saved prefs.
  */
@@ -17,6 +17,7 @@ import {
     TextInput,
     Alert,
 } from 'react-native';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import LinearGradient from 'react-native-linear-gradient';
@@ -502,7 +503,7 @@ export const OnboardingScreen: React.FC = () => {
     const isLastStep = step === TOTAL_STEPS - 1;
 
     return (
-        <SafeAreaView style={styles.container} edges={['top']}>
+        <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
             {/* Header */}
             <View style={styles.header}>
                 {step > 0 || isUpdate ? (
@@ -542,14 +543,16 @@ export const OnboardingScreen: React.FC = () => {
             <Text style={styles.progressLabel}>Step {step + 1} of {TOTAL_STEPS}</Text>
 
             {/* Content */}
-            <ScrollView
+            <KeyboardAwareScrollView
                 style={styles.scrollView}
                 contentContainerStyle={styles.scrollContent}
                 showsVerticalScrollIndicator={false}
                 keyboardShouldPersistTaps="handled"
+                enableOnAndroid={true}
+                extraScrollHeight={20}
             >
                 {STEPS[step]()}
-            </ScrollView>
+            </KeyboardAwareScrollView>
 
             {/* Bottom buttons */}
             <View style={styles.bottomBar}>

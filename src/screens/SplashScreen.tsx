@@ -5,7 +5,10 @@ import { useNavigation } from '@react-navigation/native';
 import LinearGradient from 'react-native-linear-gradient';
 import { NavigationProp } from '../types';
 import { AuthContext } from '../context/AuthContext';
-import { getPreferencesFromFirestore as getUserPreferences } from '../services/firestorePreferences';
+import {
+  getPreferencesFromFirestore as getUserPreferences,
+  syncPreferencesToBackend,
+} from '../services/firestorePreferences';
 
 export const SplashScreen: React.FC = () => {
     const navigation = useNavigation<NavigationProp>();
@@ -59,6 +62,7 @@ export const SplashScreen: React.FC = () => {
                 try {
                     const prefs = await getUserPreferences();
                     if (prefs.onboardingComplete) {
+                        syncPreferencesToBackend().catch(() => {});
                         navigation.reset({ index: 0, routes: [{ name: 'Chatbot' }] });
                     } else {
                         navigation.reset({ index: 0, routes: [{ name: 'Onboarding' }] });

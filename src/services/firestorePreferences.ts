@@ -7,6 +7,7 @@
 
 import firestore from '@react-native-firebase/firestore';
 import { getCurrentUser } from './firebaseAuth';
+import { saveUserPreferences as savePreferencesToBackend } from './api';
 
 // Re-use the same interface from api.ts
 export interface UserPreferences {
@@ -32,21 +33,58 @@ export async function savePreferencesToFirestore(
     const user = getCurrentUser();
     if (!user) return { success: false };
 
+    const payload = {
+      ...prefs,
+      onboardingComplete: true,
+      updatedAt: firestore.FieldValue.serverTimestamp(),
+    };
+
     await firestore().collection('users').doc(user.uid).set(
-      {
-        preferences: {
-          ...prefs,
-          onboardingComplete: true,
-          updatedAt: firestore.FieldValue.serverTimestamp(),
-        },
-      },
+      { preferences: payload },
       { merge: true },
     );
+
+    // Spotify recommendations read from the backend JSON store (keyed by Spotify user id).
+    const backendResult = await savePreferencesToBackend({
+      genres: prefs.genres,
+      favoriteArtists: prefs.favoriteArtists,
+      energyPreference: prefs.energyPreference,
+      languagePreference: prefs.languagePreference,
+      decadePreference: prefs.decadePreference,
+      movieGenres: prefs.movieGenres,
+      movieNightVibe: prefs.movieNightVibe,
+    });
+
+    if (!backendResult.success) {
+      console.warn('[Preferences] Firestore saved but backend sync failed — music picks may be stale until Spotify is connected');
+    }
 
     return { success: true };
   } catch (error) {
     console.warn('[Firestore] savePreferences failed:', error);
     return { success: false };
+  }
+}
+
+/**
+ * Push Firestore preferences to the backend (for users who edited prefs before dual-write existed).
+ */
+export async function syncPreferencesToBackend(): Promise<void> {
+  try {
+    const prefs = await getPreferencesFromFirestore();
+    if (!prefs.onboardingComplete) return;
+
+    await savePreferencesToBackend({
+      genres: prefs.genres,
+      favoriteArtists: prefs.favoriteArtists,
+      energyPreference: prefs.energyPreference,
+      languagePreference: prefs.languagePreference,
+      decadePreference: prefs.decadePreference,
+      movieGenres: prefs.movieGenres,
+      movieNightVibe: prefs.movieNightVibe,
+    });
+  } catch (error) {
+    console.warn('[Preferences] syncPreferencesToBackend failed:', error);
   }
 }
 

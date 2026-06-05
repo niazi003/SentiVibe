@@ -215,6 +215,44 @@ async function searchTracksCompat(api, query, options) {
 }
 
 /**
+ * Resolve saved favorite artist names to Spotify artist ids (for top-track fetch).
+ * @param {SpotifyWebApi} userApi
+ * @param {string[]} names
+ * @param {string} market
+ * @returns {Promise<Array<{ id: string, name: string }>>}
+ */
+async function resolveArtistsByName(userApi, names, market) {
+  const resolved = [];
+  const seen = new Set();
+  for (const rawName of names.slice(0, 5)) {
+    const name = String(rawName || '').trim();
+    if (!name) continue;
+    try {
+      const res = await userApi.searchArtists(name, { limit: 1, market });
+      const artist = res.body?.artists?.items?.[0];
+      if (artist?.id && !seen.has(artist.id)) {
+        seen.add(artist.id);
+        resolved.push({ id: artist.id, name: artist.name || name });
+      }
+    } catch (err) {
+      console.warn(`[Spotify] Could not resolve artist "${name}":`, err.message || err);
+    }
+  }
+  return resolved;
+}
+
+/** True when track's primary artist matches any name in the user's favorite-artist list. */
+function trackMatchesFavoriteArtists(track, favoriteArtists) {
+  if (!favoriteArtists?.length) return true;
+  const primary = (track.artists?.[0]?.name || '').toLowerCase();
+  if (!primary) return false;
+  return favoriteArtists.some((fav) => {
+    const f = String(fav).toLowerCase();
+    return primary.includes(f) || f.includes(primary);
+  });
+}
+
+/**
  * GET /artists/{id}/top-tracks — Spotify has been returning **403 Forbidden** for many
  * apps (user token and client-credentials, multiple markets). Search still works, so
  * we fall back to `searchTracks(artist:"…")` and return the same `{ body: { tracks } }`
@@ -489,6 +527,8 @@ function buildSmartSearchQueries(mood, userPrefs) {
 async function buildPersonalizedMoodTracks(userApi, mood, userPrefs, limit) {
   const seenIds = new Set();
   const seenTitles = new Set();
+  const favoriteArtists = userPrefs.favoriteArtists || [];
+  const useSavedArtistsOnly = favoriteArtists.length > 0;
 
   // Detect user's country for correct market
   let market = 'US';
@@ -505,24 +545,35 @@ async function buildPersonalizedMoodTracks(userApi, mood, userPrefs, limit) {
   const fromArtistTopTracks = [];
   const fromPreferenceSearch = [];
 
-  // ── STEP A: Fetch user's top artists ────────────────────────
+  // ── STEP A: Artists for top-track fetch (saved favorites override Spotify history) ──
   let topArtists = [];
-  try {
-    const res = await userApi.getMyTopArtists({ limit: 5, time_range: 'medium_term' });
-    topArtists = (res.body.items || []).map(a => ({ id: a.id, name: a.name }));
-    console.log(`[Spotify] Top artists: ${topArtists.map(a => a.name).join(', ') || '(none)'}`);
-  } catch (err) {
-    console.warn('[Spotify] Failed to fetch top artists:', err.message || err);
+  if (useSavedArtistsOnly) {
+    topArtists = await resolveArtistsByName(userApi, favoriteArtists, market);
+    console.log(
+      `[Spotify] Using saved favorite artists: ${topArtists.map((a) => a.name).join(', ') || '(none resolved)'}`
+    );
+  } else {
+    try {
+      const res = await userApi.getMyTopArtists({ limit: 5, time_range: 'medium_term' });
+      topArtists = (res.body.items || []).map((a) => ({ id: a.id, name: a.name }));
+      console.log(`[Spotify] Top artists: ${topArtists.map((a) => a.name).join(', ') || '(none)'}`);
+    } catch (err) {
+      console.warn('[Spotify] Failed to fetch top artists:', err.message || err);
+    }
   }
 
-  // ── STEP B: Fetch user's top tracks ─────────────────────────
-  try {
-    const res = await userApi.getMyTopTracks({ limit: 10, time_range: 'medium_term' });
-    const rawTracks = res.body.items || [];
-    ingestTrackObjects(rawTracks, seenIds, seenTitles, null, fromTopTracks);
-    console.log(`[Spotify] Top tracks: ${fromTopTracks.length} ingested`);
-  } catch (err) {
-    console.warn('[Spotify] Failed to fetch top tracks:', err.message || err);
+  // ── STEP B: Spotify listening history (skip when user set explicit favorite artists) ──
+  if (!useSavedArtistsOnly) {
+    try {
+      const res = await userApi.getMyTopTracks({ limit: 10, time_range: 'medium_term' });
+      const rawTracks = res.body.items || [];
+      ingestTrackObjects(rawTracks, seenIds, seenTitles, null, fromTopTracks);
+      console.log(`[Spotify] Top tracks: ${fromTopTracks.length} ingested`);
+    } catch (err) {
+      console.warn('[Spotify] Failed to fetch top tracks:', err.message || err);
+    }
+  } else {
+    console.log('[Spotify] Skipping Spotify top tracks — using saved favorite artists only');
   }
 
   // ── STEP C: Build smart search queries & execute ────────────
@@ -568,7 +619,9 @@ async function buildPersonalizedMoodTracks(userApi, mood, userPrefs, limit) {
   fromPreferenceSearch.sort((a, b) => b._popularity - a._popularity);
   const targetMoodSlots = Math.min(fromPreferenceSearch.length, Math.floor(limit * 0.7));
   const targetArtistSlots = Math.min(fromArtistTopTracks.length, Math.floor(limit * 0.25));
-  const targetTopTrackSlots = Math.min(fromTopTracks.length, 3, limit - (targetMoodSlots + targetArtistSlots));
+  const targetTopTrackSlots = useSavedArtistsOnly
+    ? 0
+    : Math.min(fromTopTracks.length, 3, limit - (targetMoodSlots + targetArtistSlots));
 
   for (let i = 0; i < targetMoodSlots; i++) merged.push(fromPreferenceSearch[i]);
   for (let i = 0; i < targetArtistSlots && merged.length < limit; i++) merged.push(fromArtistTopTracks[i]);
