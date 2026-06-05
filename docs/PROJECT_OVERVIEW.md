@@ -67,31 +67,81 @@ Screenshots of the SentiVibe app, organized in the order a user experiences them
 
 ### 1. Onboarding & Welcome
 
-| Onboarding Splash | Home Screen |
-|---|---|
-| The branded splash screen shown on first launch. | Welcome screen with login, sign-up, and Spotify connection. |
-| <img src="media/screenshots/onboarding.png" alt="Onboarding splash screen" width="50%" /> | <img src="media/screenshots/home-screen.png" alt="Welcome and login screen" width="50%" /> |
+<table align="center">
+  <tr>
+    <td align="center" width="220">
+      <img src="media/screenshots/onboarding.png" alt="Onboarding splash screen" width="200" />
+      <br /><sub><b>Onboarding Splash</b></sub>
+      <br /><sub>The branded splash screen shown on first launch.</sub>
+    </td>
+    <td align="center" width="220">
+      <img src="media/screenshots/home-screen.png" alt="Welcome and login screen" width="200" />
+      <br /><sub><b>Home Screen</b></sub>
+      <br /><sub>Welcome screen with login, sign-up, and Spotify connection.</sub>
+    </td>
+  </tr>
+</table>
 
 ### 2. AI Chatbot & Mood Detection
 
-| Chatbot (Before Detection) | Voice Detection | Face Detection |
-|---|---|---|
-| The AI assistant greets the user and offers text, voice, or camera input. | "Speak to Vibe" — record a short voice message to detect mood. | "Face mood" — take a selfie or pick a photo for facial emotion analysis. |
-| <img src="media/screenshots/chatbot-before-detection.png" alt="Chatbot before mood detection" width="50%" /> | <img src="media/screenshots/voice-emotion.png" alt="Speak to Vibe voice screen" width="50%" /> | <img src="media/screenshots/face-emotion.png" alt="Face mood detection screen" width="50%" /> |
+<table align="center">
+  <tr>
+    <td align="center" width="190">
+      <img src="media/screenshots/chatbot-before-detection.png" alt="Chatbot before mood detection" width="170" />
+      <br /><sub><b>Chatbot (Before Detection)</b></sub>
+      <br /><sub>The AI assistant greets the user and offers text, voice, or camera input.</sub>
+    </td>
+    <td align="center" width="190">
+      <img src="media/screenshots/voice-emotion.png" alt="Speak to Vibe voice screen" width="170" />
+      <br /><sub><b>Voice Detection</b></sub>
+      <br /><sub>"Speak to Vibe" — record a short voice message to detect mood.</sub>
+    </td>
+    <td align="center" width="190">
+      <img src="media/screenshots/face-emotion.png" alt="Face mood detection screen" width="170" />
+      <br /><sub><b>Face Detection</b></sub>
+      <br /><sub>"Face mood" — take a selfie or pick a photo for facial emotion analysis.</sub>
+    </td>
+  </tr>
+</table>
 
 ### 3. Mood Result & Recommendations
 
-| Emotion Detected | Music Recommendations | Movie Recommendations |
-|---|---|---|
-| After analysis, the chatbot confirms the mood and offers Music, Video, or Movie options. | Spotify-curated tracks matched to the detected mood (e.g. Happy). | Emotion-matched films with IMDb ratings, genres, and trailers. |
-| <img src="media/screenshots/emotion-detected-chatbot.png" alt="Chatbot after emotion detected" width="50%" /> | <img src="media/screenshots/music-recommendations.png" alt="Music recommendations for Happy mood" width="50%" /> | <img src="media/screenshots/movie-recommendations.png" alt="Movie recommendations for Happy mood" width="50%" /> |
+<table align="center">
+  <tr>
+    <td align="center" width="190">
+      <img src="media/screenshots/emotion-detected-chatbot.png" alt="Chatbot after emotion detected" width="170" />
+      <br /><sub><b>Emotion Detected</b></sub>
+      <br /><sub>After analysis, the chatbot confirms the mood and offers Music, Video, or Movie options.</sub>
+    </td>
+    <td align="center" width="190">
+      <img src="media/screenshots/music-recommendations.png" alt="Music recommendations for Happy mood" width="170" />
+      <br /><sub><b>Music Recommendations</b></sub>
+      <br /><sub>Spotify-curated tracks matched to the detected mood (e.g. Happy).</sub>
+    </td>
+    <td align="center" width="190">
+      <img src="media/screenshots/movie-recommendations.png" alt="Movie recommendations for Happy mood" width="170" />
+      <br /><sub><b>Movie Recommendations</b></sub>
+      <br /><sub>Emotion-matched films with IMDb ratings, genres, and trailers.</sub>
+    </td>
+  </tr>
+</table>
 
 ### 4. Playback & Profile
 
-| Music Player | Profile |
-|---|---|
-| Full-screen player with album art, progress bar, queue, shuffle, and repeat controls. | User profile with Spotify status, preferences, settings, and logout. |
-| <img src="media/screenshots/music-player.png" alt="In-app music player" width="50%" /> | <img src="media/screenshots/profile-screen.png" alt="User profile screen" width="50%" /> |
+<table align="center">
+  <tr>
+    <td align="center" width="220">
+      <img src="media/screenshots/music-player.png" alt="In-app music player" width="200" />
+      <br /><sub><b>Music Player</b></sub>
+      <br /><sub>Full-screen player with album art, progress bar, queue, shuffle, and repeat controls.</sub>
+    </td>
+    <td align="center" width="220">
+      <img src="media/screenshots/profile-screen.png" alt="User profile screen" width="200" />
+      <br /><sub><b>Profile</b></sub>
+      <br /><sub>User profile with Spotify status, preferences, settings, and logout.</sub>
+    </td>
+  </tr>
+</table>
 
 ---
 

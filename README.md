@@ -38,25 +38,69 @@ SentiVibe turns your mood into media recommendations. Tell the app how you feel 
 
 ### Onboarding & Welcome
 
-| Onboarding | Home Screen |
-|:---:|:---:|
-| <img src="docs/media/screenshots/onboarding.png" alt="Onboarding splash screen" width="50%" /> | <img src="docs/media/screenshots/home-screen.png" alt="Welcome and login screen" width="50%" /> |
+<table align="center">
+  <tr>
+    <td align="center" width="220">
+      <img src="docs/media/screenshots/onboarding.png" alt="Onboarding splash screen" width="200" />
+      <br /><sub><b>Onboarding</b></sub>
+    </td>
+    <td align="center" width="220">
+      <img src="docs/media/screenshots/home-screen.png" alt="Welcome and login screen" width="200" />
+      <br /><sub><b>Home Screen</b></sub>
+    </td>
+  </tr>
+</table>
 
 ### Mood Detection
 
-| AI Chatbot | Voice Detection | Face Detection |
-|:---:|:---:|:---:|
-| <img src="docs/media/screenshots/chatbot-before-detection.png" alt="Chatbot before mood detection" width="50%" /> | <img src="docs/media/screenshots/voice-emotion.png" alt="Speak to Vibe voice screen" width="50%" /> | <img src="docs/media/screenshots/face-emotion.png" alt="Face mood detection screen" width="50%" /> |
+<table align="center">
+  <tr>
+    <td align="center" width="190">
+      <img src="docs/media/screenshots/chatbot-before-detection.png" alt="Chatbot before mood detection" width="170" />
+      <br /><sub><b>AI Chatbot</b></sub>
+    </td>
+    <td align="center" width="190">
+      <img src="docs/media/screenshots/voice-emotion.png" alt="Speak to Vibe voice screen" width="170" />
+      <br /><sub><b>Voice Detection</b></sub>
+    </td>
+    <td align="center" width="190">
+      <img src="docs/media/screenshots/face-emotion.png" alt="Face mood detection screen" width="170" />
+      <br /><sub><b>Face Detection</b></sub>
+    </td>
+  </tr>
+</table>
 
 ### Recommendations & Playback
 
-| Mood Detected | Music Results | Movie Results |
-|:---:|:---:|:---:|
-| <img src="docs/media/screenshots/emotion-detected-chatbot.png" alt="Chatbot after emotion detected" width="50%" /> | <img src="docs/media/screenshots/music-recommendations.png" alt="Music recommendations for Happy mood" width="50%" /> | <img src="docs/media/screenshots/movie-recommendations.png" alt="Movie recommendations for Happy mood" width="50%" /> |
+<table align="center">
+  <tr>
+    <td align="center" width="190">
+      <img src="docs/media/screenshots/emotion-detected-chatbot.png" alt="Chatbot after emotion detected" width="170" />
+      <br /><sub><b>Mood Detected</b></sub>
+    </td>
+    <td align="center" width="190">
+      <img src="docs/media/screenshots/music-recommendations.png" alt="Music recommendations for Happy mood" width="170" />
+      <br /><sub><b>Music Results</b></sub>
+    </td>
+    <td align="center" width="190">
+      <img src="docs/media/screenshots/movie-recommendations.png" alt="Movie recommendations for Happy mood" width="170" />
+      <br /><sub><b>Movie Results</b></sub>
+    </td>
+  </tr>
+</table>
 
-| Music Player | Profile |
-|:---:|:---:|
-| <img src="docs/media/screenshots/music-player.png" alt="In-app music player" width="50%" /> | <img src="docs/media/screenshots/profile-screen.png" alt="User profile screen" width="50%" /> |
+<table align="center">
+  <tr>
+    <td align="center" width="220">
+      <img src="docs/media/screenshots/music-player.png" alt="In-app music player" width="200" />
+      <br /><sub><b>Music Player</b></sub>
+    </td>
+    <td align="center" width="220">
+      <img src="docs/media/screenshots/profile-screen.png" alt="User profile screen" width="200" />
+      <br /><sub><b>Profile</b></sub>
+    </td>
+  </tr>
+</table>
 
 ---
 
