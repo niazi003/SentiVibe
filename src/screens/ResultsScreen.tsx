@@ -28,6 +28,7 @@ import { FALLBACK_RECOMMENDATIONS, ICON_STYLE } from '../constants';
 import { AppContext } from '../context/AppContext';
 import { usePlayer } from '../context/PlayerContext';
 import { fetchRecommendations, fetchMovieRecommendations, fetchMovieTrailer } from '../services/api';
+import { formatMovieSynopsis, formatMovieReview } from '../utils/formatMovieText';
 import { getPreferencesFromFirestore } from '../services/firestorePreferences';
 
 const SCREEN_HEIGHT = Dimensions.get('window').height;
@@ -100,6 +101,19 @@ export const ResultsScreen: React.FC = () => {
                         videoUrl: movie.videoUrl || movie.trailer || undefined,
                         videoId: movie.videoId,
                         type: 'Movie',
+                        year: movie.year ?? undefined,
+                        runtime: movie.runtime ?? undefined,
+                        rated: movie.rated ?? undefined,
+                        director: movie.director ?? undefined,
+                        actors: movie.actors ?? undefined,
+                        imdbRating: movie.imdbRating ?? undefined,
+                        imdbVotes: movie.imdbVotes ?? undefined,
+                        awards: movie.awards ?? undefined,
+                        country: movie.country ?? undefined,
+                        language: movie.language ?? undefined,
+                        released: movie.released ?? undefined,
+                        boxOffice: movie.boxOffice ?? undefined,
+                        imdbId: movie.imdbId ?? undefined,
                     }));
                     setTracks(mapped);
                     setIsOffline(!!response.error);
@@ -319,6 +333,11 @@ export const ResultsScreen: React.FC = () => {
                                                     </TouchableOpacity>
                                                 </View>
                                                 <View style={styles.movieMeta}>
+                                                    {item.year ? (
+                                                        <View style={styles.yearBadge}>
+                                                            <Text style={styles.yearText}>{item.year}</Text>
+                                                        </View>
+                                                    ) : null}
                                                     <View style={styles.genreBadge}>
                                                         <Text style={styles.genreText} numberOfLines={1}>{item.artist}</Text>
                                                     </View>
@@ -346,11 +365,14 @@ export const ResultsScreen: React.FC = () => {
                                                         </View>
                                                     );
                                                 })()}
-                                                {item.description && (
-                                                    <Text style={styles.movieSynopsis} numberOfLines={2}>
-                                                        {item.description}
-                                                    </Text>
-                                                )}
+                                                {(() => {
+                                                    const synopsis = formatMovieSynopsis(item.description);
+                                                    return synopsis ? (
+                                                        <Text style={styles.movieSynopsis} numberOfLines={2}>
+                                                            {synopsis}
+                                                        </Text>
+                                                    ) : null;
+                                                })()}
                                             </View>
                                         </View>
                                         <View style={styles.movieTapHint}>
@@ -498,24 +520,110 @@ export const ResultsScreen: React.FC = () => {
 
                                 <View style={styles.modalDivider} />
 
-                                {/* Synopsis */}
-                                {selectedMovie?.description && (
+                                {/* IMDb details */}
+                                {(selectedMovie?.runtime || selectedMovie?.rated || selectedMovie?.released || selectedMovie?.year) && (
                                     <>
-                                        <Text style={styles.modalSectionLabel}>Synopsis</Text>
-                                        <Text style={styles.modalSynopsis}>{selectedMovie.description}</Text>
+                                        <Text style={styles.modalSectionLabel}>Details</Text>
+                                        <View style={styles.modalDetailsGrid}>
+                                            {selectedMovie?.year ? (
+                                                <View style={styles.modalDetailItem}>
+                                                    <Text style={styles.modalDetailLabel}>Year</Text>
+                                                    <Text style={styles.modalDetailValue}>{selectedMovie.year}</Text>
+                                                </View>
+                                            ) : null}
+                                            {selectedMovie?.runtime ? (
+                                                <View style={styles.modalDetailItem}>
+                                                    <Text style={styles.modalDetailLabel}>Runtime</Text>
+                                                    <Text style={styles.modalDetailValue}>{selectedMovie.runtime}</Text>
+                                                </View>
+                                            ) : null}
+                                            {selectedMovie?.rated ? (
+                                                <View style={styles.modalDetailItem}>
+                                                    <Text style={styles.modalDetailLabel}>Rated</Text>
+                                                    <Text style={styles.modalDetailValue}>{selectedMovie.rated}</Text>
+                                                </View>
+                                            ) : null}
+                                            {selectedMovie?.released ? (
+                                                <View style={styles.modalDetailItem}>
+                                                    <Text style={styles.modalDetailLabel}>Released</Text>
+                                                    <Text style={styles.modalDetailValue}>{selectedMovie.released}</Text>
+                                                </View>
+                                            ) : null}
+                                        </View>
+                                        <View style={styles.modalDivider} />
                                     </>
                                 )}
+
+                                {selectedMovie?.director ? (
+                                    <>
+                                        <Text style={styles.modalSectionLabel}>Director</Text>
+                                        <Text style={styles.modalDetailText}>{selectedMovie.director}</Text>
+                                        <View style={styles.modalDivider} />
+                                    </>
+                                ) : null}
+
+                                {selectedMovie?.actors ? (
+                                    <>
+                                        <Text style={styles.modalSectionLabel}>Cast</Text>
+                                        <Text style={styles.modalDetailText}>{selectedMovie.actors}</Text>
+                                        <View style={styles.modalDivider} />
+                                    </>
+                                ) : null}
+
+                                {(selectedMovie?.imdbRating || selectedMovie?.country || selectedMovie?.language || selectedMovie?.boxOffice) && (
+                                    <>
+                                        <Text style={styles.modalSectionLabel}>IMDb Info</Text>
+                                        {selectedMovie?.imdbRating ? (
+                                            <Text style={styles.modalDetailText}>
+                                                IMDb: {selectedMovie.imdbRating}/10
+                                                {selectedMovie.imdbVotes ? ` (${selectedMovie.imdbVotes} votes)` : ''}
+                                            </Text>
+                                        ) : null}
+                                        {selectedMovie?.country ? (
+                                            <Text style={styles.modalDetailText}>Country: {selectedMovie.country}</Text>
+                                        ) : null}
+                                        {selectedMovie?.language ? (
+                                            <Text style={styles.modalDetailText}>Language: {selectedMovie.language}</Text>
+                                        ) : null}
+                                        {selectedMovie?.boxOffice ? (
+                                            <Text style={styles.modalDetailText}>Box Office: {selectedMovie.boxOffice}</Text>
+                                        ) : null}
+                                        <View style={styles.modalDivider} />
+                                    </>
+                                )}
+
+                                {selectedMovie?.awards ? (
+                                    <>
+                                        <Text style={styles.modalSectionLabel}>Awards</Text>
+                                        <Text style={styles.modalDetailText}>{selectedMovie.awards}</Text>
+                                        <View style={styles.modalDivider} />
+                                    </>
+                                ) : null}
+
+                                {/* Synopsis */}
+                                {(() => {
+                                    const synopsis = formatMovieSynopsis(selectedMovie?.description);
+                                    return synopsis ? (
+                                        <>
+                                            <Text style={styles.modalSectionLabel}>Synopsis</Text>
+                                            <Text style={styles.modalSynopsis}>{synopsis}</Text>
+                                        </>
+                                    ) : null;
+                                })()}
 
                                 <View style={styles.modalDivider} />
 
                                 {/* Reviews (From Dataset) */}
-                                {selectedMovie?.reviews && selectedMovie.reviews.trim() !== '' && selectedMovie.reviews !== 'nan' && (
-                                    <>
-                                        <Text style={styles.modalSectionLabel}>💬  Top Review</Text>
-                                        <Text style={styles.modalReviewText}>"{selectedMovie.reviews.trim()}"</Text>
-                                        <View style={styles.modalDivider} />
-                                    </>
-                                )}
+                                {(() => {
+                                    const review = formatMovieReview(selectedMovie?.reviews);
+                                    return review ? (
+                                        <>
+                                            <Text style={styles.modalSectionLabel}>💬  Top Review</Text>
+                                            <Text style={styles.modalReviewText}>"{review}"</Text>
+                                            <View style={styles.modalDivider} />
+                                        </>
+                                    ) : null;
+                                })()}
 
                                 {/* Trailer */}
                                 <Text style={styles.modalSectionLabel}>🎬  Trailer</Text>
@@ -773,6 +881,20 @@ const styles = StyleSheet.create({
         gap: 8,
         flexWrap: 'wrap',
     },
+    yearBadge: {
+        backgroundColor: 'rgba(148, 163, 184, 0.12)',
+        paddingHorizontal: 8,
+        paddingVertical: 3,
+        borderRadius: 6,
+        borderWidth: 1,
+        borderColor: 'rgba(148, 163, 184, 0.25)',
+    },
+    yearText: {
+        fontSize: 10,
+        fontWeight: '700',
+        color: '#94A3B8',
+        letterSpacing: 0.3,
+    },
     genreBadge: {
         backgroundColor: 'rgba(96, 165, 250, 0.15)',
         paddingHorizontal: 8,
@@ -988,6 +1110,40 @@ const styles = StyleSheet.create({
         fontSize: 14,
         color: '#CBD5E1',
         lineHeight: 22,
+        textAlign: 'left',
+    },
+    modalDetailsGrid: {
+        flexDirection: 'row',
+        flexWrap: 'wrap',
+        gap: 10,
+    },
+    modalDetailItem: {
+        minWidth: '45%',
+        backgroundColor: 'rgba(255,255,255,0.04)',
+        borderRadius: 10,
+        paddingHorizontal: 12,
+        paddingVertical: 10,
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.06)',
+    },
+    modalDetailLabel: {
+        fontSize: 10,
+        fontWeight: '700',
+        color: 'rgba(255,255,255,0.4)',
+        textTransform: 'uppercase',
+        letterSpacing: 0.8,
+        marginBottom: 4,
+    },
+    modalDetailValue: {
+        fontSize: 14,
+        fontWeight: '600',
+        color: '#E2E8F0',
+    },
+    modalDetailText: {
+        fontSize: 14,
+        color: '#CBD5E1',
+        lineHeight: 22,
+        marginBottom: 6,
     },
     modalReviewText: {
         fontSize: 14,

@@ -749,6 +749,179 @@ async function buildPersonalizedMoodTracks(userApi, mood, userPrefs, limit) {
 }
 
 /**
+ * True when the user saved onboarding music preferences (genres, artists, language, decade).
+ */
+function hasSavedMusicPreferences(userPrefs) {
+  const genres = userPrefs.genres || [];
+  const artists = userPrefs.favoriteArtists || [];
+  const language = userPrefs.languagePreference || 'no preference';
+  const decade = userPrefs.decadePreference || 'no preference';
+  return (
+    genres.length > 0 ||
+    artists.length > 0 ||
+    language !== 'no preference' ||
+    decade !== 'no preference'
+  );
+}
+
+/**
+ * Search queries for neutral mood — preference-driven only (no mood adjectives).
+ * Falls back to popular chart queries when prefs are empty.
+ */
+function buildPreferenceOnlyQueries(userPrefs) {
+  if (!hasSavedMusicPreferences(userPrefs)) {
+    return MOOD_SEARCH_QUERIES.neutral;
+  }
+
+  const genres = userPrefs.genres || [];
+  const artists = userPrefs.favoriteArtists || [];
+  const language = userPrefs.languagePreference || 'no preference';
+  const decade = userPrefs.decadePreference || 'no preference';
+  const queries = [];
+
+  for (const genre of genres.slice(0, 4)) {
+    queries.push(`${genre} hits`);
+    queries.push(`popular ${genre}`);
+  }
+  for (const artist of artists.slice(0, 3)) {
+    queries.push(artist);
+    queries.push(`${artist} top songs`);
+  }
+  if (decade !== 'no preference') {
+    queries.push(`${decade} ${genres[0] || 'hits'}`);
+  }
+  if (language === 'urdu+hindi' || language === 'mix') {
+    queries.push('urdu hindi hits');
+  }
+  if (language === 'english' || language === 'mix') {
+    queries.push(`english ${genres[0] || 'pop'} hits`);
+  }
+
+  return [...new Set(queries)].slice(0, 8);
+}
+
+/**
+ * Neutral recommendations: saved preferences only (no Spotify listening history).
+ * Used when chat/ML returns neutral — picks follow onboarding, not detected mood.
+ */
+async function buildPreferenceOnlyTracks(userApi, userPrefs, limit) {
+  const seenIds = new Set();
+  const seenTitles = new Set();
+  const favoriteArtists = userPrefs.favoriteArtists || [];
+
+  let market = 'US';
+  try {
+    const me = await userApi.getMe();
+    market = me.body?.country || 'US';
+  } catch {
+    console.warn('[Spotify] Could not detect user market for neutral prefs, defaulting to US');
+  }
+
+  const fromPreferenceSearch = [];
+  const fromArtistTopTracks = [];
+
+  const searchQueries = buildPreferenceOnlyQueries(userPrefs);
+  console.log(`[Spotify] Neutral preference queries: ${JSON.stringify(searchQueries)}`);
+
+  const perQuery = Math.min(20, Math.max(8, Math.ceil(limit / Math.max(1, searchQueries.length)) + 6));
+  const searchResults = await Promise.all(
+    searchQueries.map(async (query) => {
+      try {
+        const result = await searchTracksCompat(userApi, query, { limit: perQuery, market });
+        return result.body.tracks?.items || [];
+      } catch (err) {
+        console.warn(`[Spotify] Neutral preference query failed: "${query}"`, err.message);
+        return [];
+      }
+    }),
+  );
+
+  for (const tracks of searchResults) {
+    ingestTrackObjects(tracks, seenIds, seenTitles, null, fromPreferenceSearch);
+  }
+
+  if (favoriteArtists.length > 0) {
+    const resolved = await resolveArtistsByName(userApi, favoriteArtists, market);
+    for (const artist of resolved.slice(0, 3)) {
+      try {
+        const res = await getArtistTopTracksWithFallback(userApi, artist.id, market, artist.name);
+        ingestTrackObjects(res.body.tracks || [], seenIds, seenTitles, null, fromArtistTopTracks);
+      } catch (err) {
+        console.warn(`[Spotify] Neutral artist top tracks failed for "${artist.name}":`, err.message);
+      }
+    }
+  }
+
+  fromPreferenceSearch.sort((a, b) => b._popularity - a._popularity);
+  const merged = [];
+  const prefBudget = Math.floor(limit * 0.7);
+  for (let i = 0; i < Math.min(fromPreferenceSearch.length, prefBudget); i++) {
+    merged.push(fromPreferenceSearch[i]);
+  }
+  for (let i = 0; i < fromArtistTopTracks.length && merged.length < limit; i++) {
+    merged.push(fromArtistTopTracks[i]);
+  }
+  for (let i = prefBudget; i < fromPreferenceSearch.length && merged.length < limit; i++) {
+    merged.push(fromPreferenceSearch[i]);
+  }
+
+  return merged.map(({ _popularity, ...t }) => t);
+}
+
+/**
+ * Neutral mood: preference-based picks when onboarding prefs exist, else popular chart hits.
+ * Skips mood-matching and Spotify listening-history personalization.
+ */
+async function getNeutralRecommendations(userAccessToken, limit) {
+  if (userAccessToken) {
+    try {
+      const userApi = new SpotifyWebApi({ accessToken: userAccessToken });
+      let userId = null;
+      try {
+        const me = await userApi.getMe();
+        userId = me.body?.id || null;
+      } catch {
+        console.warn('[Spotify] Could not fetch user profile for neutral preference lookup');
+      }
+
+      const userPrefs = userId ? getPreferences(userId) : {};
+      if (hasSavedMusicPreferences(userPrefs)) {
+        const prefTracks = await buildPreferenceOnlyTracks(userApi, userPrefs, limit);
+        if (prefTracks.length >= 3) {
+          logSongSource(
+            `Neutral: ${prefTracks.length} track(s) from saved preferences only (source=preference-only)`
+          );
+          return { tracks: prefTracks.slice(0, limit), source: 'preference-only', playlist: null };
+        }
+        logSongSource(
+          `Neutral: preference search returned ${prefTracks.length} track(s) — falling back to popular`
+        );
+      }
+    } catch (err) {
+      console.warn('[Spotify] Neutral preference flow failed:', err.message || err);
+    }
+  }
+
+  try {
+    const api = await initSpotify();
+    const popular = await getTracksFromMoodSearchOnly(api, 'neutral', limit, new Set(), 'US');
+    if (popular.length > 0) {
+      logSongSource(`Neutral: ${popular.length} popular track(s) (source=popular)`);
+      return { tracks: popular.slice(0, limit), source: 'popular', playlist: null };
+    }
+  } catch (err) {
+    console.warn('[Spotify] Neutral popular search failed:', err.message || err);
+  }
+
+  logSongSource('Neutral: using FALLBACK_DATA popular list (source=fallback)');
+  return {
+    tracks: (FALLBACK_DATA.neutral || FALLBACK_DATA.happy).slice(0, limit),
+    source: 'fallback',
+    playlist: null,
+  };
+}
+
+/**
  * Main entry point: mood-based music recommendations.
  *
  * Flow:
@@ -765,6 +938,10 @@ async function getRecommendationsByMood(mood, limit = RECOMMENDATION_TOTAL, opti
   const normalizedMood = mood.toLowerCase();
   const userAccessToken = options.userAccessToken || null;
   const personalizedLimit = Math.max(1, limit - EMOTION_ONLY_SLOTS);
+
+  if (normalizedMood === 'neutral') {
+    return getNeutralRecommendations(userAccessToken, limit);
+  }
 
   if (userAccessToken) {
     logSongSource(

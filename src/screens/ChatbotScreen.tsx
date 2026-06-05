@@ -65,9 +65,12 @@ export const ChatbotScreen: React.FC = () => {
         };
         const emotionEmoji = emojiMap[emotionStr] || '🎭';
 
+        const isNeutral = emotionStr.toLowerCase() === 'neutral';
         const resultMsg: ChatMessage = {
             id: Date.now() + 10,
-            text: `I've analyzed your input. You seem to be feeling ${emotionStr} ${emotionEmoji}.`,
+            text: isNeutral
+                ? `Your mood reads as neutral ${emotionEmoji}. I'll suggest music and films from your saved preferences — or popular picks if you haven't set any yet.`
+                : `I've analyzed your input. You seem to be feeling ${emotionStr} ${emotionEmoji}.`,
             sender: 'bot',
             isResult: true,
             showFeedback: true
@@ -124,7 +127,7 @@ export const ChatbotScreen: React.FC = () => {
                     };
                     return [...filtered, replyMsg];
                 });
-                if (aiResponse.detectedEmotion && aiResponse.detectedEmotion !== 'neutral') {
+                if (aiResponse.detectedEmotion) {
                     const emotion =
                         aiResponse.detectedEmotion.charAt(0).toUpperCase() +
                         aiResponse.detectedEmotion.slice(1);
@@ -176,7 +179,7 @@ export const ChatbotScreen: React.FC = () => {
             });
 
             // Use the AI-detected emotion to show mood result
-            if (aiResponse.detectedEmotion && aiResponse.detectedEmotion !== 'neutral') {
+            if (aiResponse.detectedEmotion) {
                 const emotion = aiResponse.detectedEmotion.charAt(0).toUpperCase() + aiResponse.detectedEmotion.slice(1);
                 setTimeout(() => triggerMoodResult(emotion, 'chat'), 500);
             }

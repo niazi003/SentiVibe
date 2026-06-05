@@ -7,6 +7,7 @@ import { AppContext } from '../context/AppContext';
 import { NavigationProp, MediaItem } from '../types';
 import { GlassCard, YouTubePlayer, extractYouTubeId } from '../components';
 import { ICON_STYLE } from '../constants';
+import { formatMovieSynopsis } from '../utils/formatMovieText';
 
 // Enable LayoutAnimation for Android
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -62,16 +63,24 @@ export const FavoritesScreen: React.FC = () => {
                                     </TouchableOpacity>
                                 </View>
                                 <View style={styles.movieMeta}>
+                                    {item.year ? (
+                                        <View style={styles.yearBadge}>
+                                            <Text style={styles.yearText}>{item.year}</Text>
+                                        </View>
+                                    ) : null}
                                     <View style={styles.genreBadge}>
                                         <Text style={styles.genreText}>{item.artist}</Text>
                                     </View>
                                     <Text style={styles.movieDuration}>{item.duration}</Text>
                                 </View>
-                                {item.description && (
-                                    <Text style={styles.movieSynopsis} numberOfLines={expandedTrailerId === item.id ? undefined : 3}>
-                                        {item.description}
-                                    </Text>
-                                )}
+                                {(() => {
+                                    const synopsis = formatMovieSynopsis(item.description);
+                                    return synopsis ? (
+                                        <Text style={styles.movieSynopsis} numberOfLines={expandedTrailerId === item.id ? undefined : 3}>
+                                            {synopsis}
+                                        </Text>
+                                    ) : null;
+                                })()}
                             </View>
                         </View>
 
@@ -301,6 +310,19 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         gap: 8,
+    },
+    yearBadge: {
+        backgroundColor: 'rgba(148, 163, 184, 0.12)',
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+        borderRadius: 4,
+        borderWidth: 1,
+        borderColor: 'rgba(148, 163, 184, 0.25)',
+    },
+    yearText: {
+        fontSize: 11,
+        fontWeight: '600',
+        color: '#94A3B8',
     },
     genreBadge: {
         backgroundColor: 'rgba(96, 165, 250, 0.2)',

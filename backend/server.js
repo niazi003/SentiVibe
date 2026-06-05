@@ -56,34 +56,51 @@ const PORT = process.env.PORT || 3001;
 // Each mood gets its own cache entry
 const cache = new NodeCache({ stdTTL: 3600, checkperiod: 600 });
 
-// ── Movie Poster Fetcher (OMDB API — IMDb Posters) ─────────
+// ── Movie Metadata Fetcher (OMDB API — IMDb data) ────────────
 /**
- * Fetches a real movie poster URL using the OMDB API (IMDb data).
+ * Fetches poster + metadata from OMDB (IMDb-sourced).
  * Provide OMDB_API_KEY in .env, or it will use a standard public fallback key.
- * Returns null if no poster is found — caller keeps the placeholder.
+ * Returns null when no match is found — caller keeps dataset placeholders.
  */
-async function fetchMoviePoster(title) {
+async function fetchMovieOmdbData(title) {
   try {
     const apiKey = process.env.OMDB_API_KEY || 'thewdb';
     const query = encodeURIComponent(title);
-    
+
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), 6000);
-    
+
     const response = await fetch(
-      `http://www.omdbapi.com/?apikey=${apiKey}&t=${query}`,
+      `http://www.omdbapi.com/?apikey=${apiKey}&t=${query}&plot=full`,
       { signal: ctrl.signal }
     );
     clearTimeout(t);
-    
+
     if (!response.ok) return null;
-    
+
     const data = await response.json();
-    
-    if (data.Response === 'True' && data.Poster && data.Poster !== 'N/A') {
-      return data.Poster;
-    }
-    return null;
+    if (data.Response !== 'True') return null;
+
+    const pick = (value) => (value && value !== 'N/A' ? value : null);
+
+    return {
+      poster: pick(data.Poster),
+      year: pick(data.Year),
+      runtime: pick(data.Runtime),
+      rated: pick(data.Rated),
+      genre: pick(data.Genre),
+      director: pick(data.Director),
+      actors: pick(data.Actors),
+      plot: pick(data.Plot),
+      imdbRating: pick(data.imdbRating),
+      imdbVotes: pick(data.imdbVotes),
+      awards: pick(data.Awards),
+      country: pick(data.Country),
+      language: pick(data.Language),
+      released: pick(data.Released),
+      boxOffice: pick(data.BoxOffice),
+      imdbId: pick(data.imdbID),
+    };
   } catch {
     return null;
   }
@@ -304,33 +321,43 @@ app.get('/api/recommendations/movies', async (req, res) => {
 
     const enriched = await Promise.all(
       rawMovies.map(async (movie, index) => {
-        // ── Real movie poster (OMDB API) ────────────────────────
+        // ── OMDB metadata (poster, year, cast, etc.) ─────────────
         // Trailers are NOT fetched here — they are loaded on-demand when the
         // user taps "Watch Trailer", via GET /api/trailer-search?title=...
-        // This avoids burning YouTube API quota for movies nobody watches.
-        const posterKey = `poster_${movie.title.toLowerCase().replace(/\s+/g, '_')}`;
-        let coverUrl = movie.cover; // placeholder default
-        const cachedPoster = cache.get(posterKey);
-        if (cachedPoster) {
-          coverUrl = cachedPoster;
-        } else {
-          const itunes = await fetchMoviePoster(movie.title);
-          if (itunes) {
-            coverUrl = itunes;
-            cache.set(posterKey, itunes, 86400 * 7); // cache poster for 7 days
+        const omdbKey = `omdb_${movie.title.toLowerCase().replace(/\s+/g, '_')}`;
+        let omdb = cache.get(omdbKey);
+        if (!omdb) {
+          omdb = await fetchMovieOmdbData(movie.title);
+          if (omdb) {
+            cache.set(omdbKey, omdb, 86400 * 7); // cache for 7 days
           }
         }
+
+        const coverUrl = omdb?.poster || movie.cover;
 
         return {
           id: movie.id ?? index + 1,
           title: movie.title,
-          artist: movie.genres || 'Film',
-          duration: movie.duration || 'Feature',
+          artist: movie.genres || omdb?.genre || 'Film',
+          duration: omdb?.runtime || movie.duration || 'Feature',
           cover: coverUrl,
-          description: movie.description,
+          description: movie.description || omdb?.plot || null,
           rating: movie.rating,
           emotion: movie.emotion,
           reviews: movie.reviews,
+          year: omdb?.year ?? null,
+          runtime: omdb?.runtime ?? null,
+          rated: omdb?.rated ?? null,
+          director: omdb?.director ?? null,
+          actors: omdb?.actors ?? null,
+          imdbRating: omdb?.imdbRating ?? null,
+          imdbVotes: omdb?.imdbVotes ?? null,
+          awards: omdb?.awards ?? null,
+          country: omdb?.country ?? null,
+          language: omdb?.language ?? null,
+          released: omdb?.released ?? null,
+          boxOffice: omdb?.boxOffice ?? null,
+          imdbId: omdb?.imdbId ?? null,
           // Trailer fields are null — fetched lazily via /api/trailer-search
           videoId: null,
           videoUrl: null,

@@ -43,6 +43,20 @@ export interface MediaItem {
     durationMs?: number;           // Duration in milliseconds
     type?: 'Music' | 'Video' | 'Movie';
     reviews?: string;
+    // OMDB / IMDb metadata (movies only)
+    year?: string;
+    runtime?: string;
+    rated?: string;
+    director?: string;
+    actors?: string;
+    imdbRating?: string;
+    imdbVotes?: string;
+    awards?: string;
+    country?: string;
+    language?: string;
+    released?: string;
+    boxOffice?: string;
+    imdbId?: string;
 }
 
 /**
@@ -77,6 +91,19 @@ export interface MovieRecommendation {
     videoId?: string | null;
     videoUrl?: string | null;
     trailer?: string | null;
+    year?: string | null;
+    runtime?: string | null;
+    rated?: string | null;
+    director?: string | null;
+    actors?: string | null;
+    imdbRating?: string | null;
+    imdbVotes?: string | null;
+    awards?: string | null;
+    country?: string | null;
+    language?: string | null;
+    released?: string | null;
+    boxOffice?: string | null;
+    imdbId?: string | null;
 }
 
 /**

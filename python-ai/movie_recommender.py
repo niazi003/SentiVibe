@@ -177,17 +177,6 @@ class MovieRecommender:
         movie_night_vibe: User's movie-night vibe from onboarding (e.g. "action", "comfort").
         """
         mood_key = (app_mood or "neutral").strip().lower()
-        allowed = APP_MOOD_TO_CSV_EMOTIONS.get(mood_key, [mood_key])
-
-        pool = self.df[self.df["emotion_norm"].isin(allowed)].copy()
-        # Fallback: if no rows match the mood, use the full dataset
-        if pool.empty:
-            print(f"[movies] No rows for mood='{mood_key}', using full dataset.")
-            pool = self.df.copy()
-
-        # One entry per movie title within the mood pool
-        pool = pool.sort_values("Ratings", ascending=False)
-        pool = pool.drop_duplicates(subset=["movie_name"], keep="first")
 
         # ── Personalization: genre filter / boost ────────────────────────
         genre_keywords: list[str] = []
@@ -201,19 +190,49 @@ class MovieRecommender:
         if movie_night_vibe:
             genre_keywords.extend(_VIBE_TO_GENRES.get(movie_night_vibe, []))
 
-        if genre_keywords:
-            genres_col = pool["genres"].astype(str).str.lower()
-            pref_mask = genres_col.apply(
-                lambda g: any(kw in g for kw in genre_keywords)
-            )
-            pref_pool = pool[pref_mask]
-            # If personalised pool has enough movies use it, else fall back to full mood pool
-            if len(pref_pool) >= max(top_k, 3):
-                pool = pref_pool
-            elif not pref_pool.empty:
-                # Merge: preferred movies first, then pad from mood pool
-                extras = pool[~pool.index.isin(pref_pool.index)]
-                pool = pd.concat([pref_pool, extras])
+        if mood_key == "neutral":
+            # Neutral: user movie prefs only, else highest-rated popular titles (no mood filter)
+            pool = self.df.copy()
+            pool = pool.sort_values("Ratings", ascending=False)
+            pool = pool.drop_duplicates(subset=["movie_name"], keep="first")
+            if genre_keywords:
+                genres_col = pool["genres"].astype(str).str.lower()
+                pref_mask = genres_col.apply(
+                    lambda g: any(kw in g for kw in genre_keywords)
+                )
+                pref_pool = pool[pref_mask]
+                if len(pref_pool) >= max(top_k, 3):
+                    pool = pref_pool
+                elif not pref_pool.empty:
+                    extras = pool[~pool.index.isin(pref_pool.index)]
+                    pool = pd.concat([pref_pool, extras])
+            print(f"[movies] Neutral mood — preference pool={len(pool)} title(s)")
+        else:
+            allowed = APP_MOOD_TO_CSV_EMOTIONS.get(mood_key, [mood_key])
+
+            pool = self.df[self.df["emotion_norm"].isin(allowed)].copy()
+            # Fallback: if no rows match the mood, use the full dataset
+            if pool.empty:
+                print(f"[movies] No rows for mood='{mood_key}', using full dataset.")
+                pool = self.df.copy()
+
+            # One entry per movie title within the mood pool
+            pool = pool.sort_values("Ratings", ascending=False)
+            pool = pool.drop_duplicates(subset=["movie_name"], keep="first")
+
+            if genre_keywords:
+                genres_col = pool["genres"].astype(str).str.lower()
+                pref_mask = genres_col.apply(
+                    lambda g: any(kw in g for kw in genre_keywords)
+                )
+                pref_pool = pool[pref_mask]
+                # If personalised pool has enough movies use it, else fall back to full mood pool
+                if len(pref_pool) >= max(top_k, 3):
+                    pool = pref_pool
+                elif not pref_pool.empty:
+                    # Merge: preferred movies first, then pad from mood pool
+                    extras = pool[~pool.index.isin(pref_pool.index)]
+                    pool = pd.concat([pref_pool, extras])
 
         indices = pool.index.to_numpy()
         if len(indices) == 0:
