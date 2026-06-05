@@ -1,97 +1,146 @@
-This is a new [**React Native**](https://reactnative.dev) project, bootstrapped using [`@react-native-community/cli`](https://github.com/react-native-community/cli).
+# SentiVibe
 
-# Getting Started
+> **Where Moods Meet Media**
 
-> **Note**: Make sure you have completed the [Set Up Your Environment](https://reactnative.dev/docs/set-up-your-environment) guide before proceeding.
+An AI-powered mobile app that detects how you feel and recommends **music**, **music videos**, and **movies** tailored to your mood.
 
-## Step 1: Start Metro
+[![React Native](https://img.shields.io/badge/React%20Native-0.83-61DAFB?logo=react&logoColor=white)](https://reactnative.dev)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.8-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
+[![Node.js](https://img.shields.io/badge/Node.js-20+-339933?logo=node.js&logoColor=white)](https://nodejs.org)
+[![Python](https://img.shields.io/badge/Python-AI%20%2B%20ML-3776AB?logo=python&logoColor=white)](https://www.python.org)
 
-First, you will need to run **Metro**, the JavaScript build tool for React Native.
+---
 
-To start the Metro dev server, run the following command from the root of your React Native project:
+## What It Does
 
-```sh
-# Using npm
-npm start
+SentiVibe turns your mood into media recommendations. Tell the app how you feel through **chat**, **camera**, or **voice** — and it curates Spotify tracks, YouTube videos, and movies that match.
 
-# OR using Yarn
-yarn start
+| Feature | Description |
+|---|---|
+| Multimodal mood detection | Text, face, and voice emotion analysis |
+| AI chatbot | LLaMA-powered assistant with memory (RAG) |
+| Spotify integration | Real mood-based track recommendations |
+| YouTube player | In-app music videos and movie trailers |
+| Movie picks | Emotion-matched films with IMDb metadata |
+| Personalization | Onboarding wizard for music & movie tastes |
+
+---
+
+## Screenshots
+
+> Add your images to `docs/media/screenshots/` — they will appear here automatically once committed.
+
+| Welcome | Chatbot | Results |
+|:---:|:---:|:---:|
+| ![Welcome](docs/media/screenshots/01-welcome.png) | ![Chatbot](docs/media/screenshots/02-chatbot.png) | ![Results](docs/media/screenshots/04-music-results.png) |
+
+<!-- Optional demo video — replace YOUR_VIDEO_ID with your YouTube link -->
+<!-- [![Watch demo](docs/media/screenshots/demo-thumbnail.png)](https://www.youtube.com/watch?v=YOUR_VIDEO_ID) -->
+
+---
+
+## Full Documentation
+
+This README is the **GitHub landing page**. For the complete project guide — architecture, API reference, ML models, privacy, deployment, and media instructions — see:
+
+**[docs/PROJECT_OVERVIEW.md](docs/PROJECT_OVERVIEW.md)**
+
+---
+
+## Architecture (at a glance)
+
+```
+React Native App  →  Node.js API Gateway (port 3001)  →  Python AI (8000) + Emotion ML (5001)
+                              ↓
+                    Spotify · YouTube · OMDB · Firebase
 ```
 
-## Step 2: Build and run your app
+---
 
-With Metro running, open a new terminal window/pane from the root of your React Native project, and use one of the following commands to build and run your Android or iOS app:
+## Quick Start
 
-### Android
+### Prerequisites
 
-```sh
-# Using npm
-npm run android
+- Node.js 20+
+- Python 3.10+
+- [React Native dev environment](https://reactnative.dev/docs/set-up-your-environment)
+- Ollama with `llama3.2:1b`
+- API keys: Spotify, YouTube, Firebase
 
-# OR using Yarn
-yarn android
+### Install & Run
+
+```bash
+# Clone
+git clone https://github.com/YOUR_ORG/sentivibe.git
+cd sentivibe
+
+# Mobile app
+npm install
+
+# Backend
+cd backend && npm install && cp .env.example .env && cd ..
+
+# Python AI (see docs/PROJECT_OVERVIEW.md for full pip list)
+cd python-ai && pip install -r requirements.txt 2>/dev/null || pip install flask flask-cors transformers deepface scikit-learn pandas sentence-transformers faiss-cpu requests && cd ..
 ```
 
-### iOS
+Start all services (4 terminals):
 
-For iOS, remember to install CocoaPods dependencies (this only needs to be run on first clone or after updating native deps).
-
-The first time you create a new project, run the Ruby bundler to install CocoaPods itself:
-
-```sh
-bundle install
+```bash
+ollama serve                                          # Terminal 1
+cd python-ai && python ai_server.py                   # Terminal 2
+cd backend && npm run dev                             # Terminal 3
+npm start                                             # Terminal 4 — Metro
 ```
 
-Then, and every time you update your native dependencies, run:
+Run the app:
 
-```sh
-bundle exec pod install
+```bash
+npm run android    # or: npm run ios
 ```
 
-For more information, please visit [CocoaPods Getting Started guide](https://guides.cocoapods.org/using/getting-started.html).
+> Physical devices: update `BASE_URL` in `src/services/api.ts` with your machine IP or ngrok URL.  
+> Full setup details → [docs/PROJECT_OVERVIEW.md#getting-started-developers](docs/PROJECT_OVERVIEW.md#getting-started-developers)
 
-```sh
-# Using npm
-npm run ios
+---
 
-# OR using Yarn
-yarn ios
+## Project Structure
+
+```
+sentivibe/
+├── src/              # React Native app (screens, components, services)
+├── backend/          # Node.js Express API gateway
+├── python-ai/        # LLaMA chatbot, emotion detection, movie recommender
+├── android/          # Android native project
+├── ios/              # iOS native project
+└── docs/
+    ├── PROJECT_OVERVIEW.md   # Full documentation
+    └── media/screenshots/    # Add app screenshots here
 ```
 
-If everything is set up correctly, you should see your new app running in the Android Emulator, iOS Simulator, or your connected device.
+---
 
-This is one way to run your app — you can also build it directly from Android Studio or Xcode.
+## Tech Stack
 
-## Step 3: Modify your app
+| Layer | Technologies |
+|---|---|
+| Mobile | React Native, TypeScript, React Navigation, Firebase |
+| Backend | Express, Spotify API, YouTube API, node-cache |
+| AI / ML | Ollama (LLaMA 3.2), FAISS RAG, DistilRoBERTa, DeepFace, TF-IDF |
 
-Now that you have successfully run the app, let's make changes!
+---
 
-Open `App.tsx` in your text editor of choice and make some changes. When you save, your app will automatically update and reflect these changes — this is powered by [Fast Refresh](https://reactnative.dev/docs/fast-refresh).
+## Contributing
 
-When you want to forcefully reload, for example to reset the state of your app, you can perform a full reload:
+1. Fork the repo
+2. Create a branch: `git checkout -b feature/your-feature`
+3. Commit your changes
+4. Open a Pull Request
 
-- **Android**: Press the <kbd>R</kbd> key twice or select **"Reload"** from the **Dev Menu**, accessed via <kbd>Ctrl</kbd> + <kbd>M</kbd> (Windows/Linux) or <kbd>Cmd ⌘</kbd> + <kbd>M</kbd> (macOS).
-- **iOS**: Press <kbd>R</kbd> in iOS Simulator.
+See [docs/PROJECT_OVERVIEW.md#contributing](docs/PROJECT_OVERVIEW.md#contributing) for conventions.
 
-## Congratulations! :tada:
+---
 
-You've successfully run and modified your React Native App. :partying_face:
-
-### Now what?
-
-- If you want to add this new React Native code to an existing application, check out the [Integration guide](https://reactnative.dev/docs/integration-with-existing-apps).
-- If you're curious to learn more about React Native, check out the [docs](https://reactnative.dev/docs/getting-started).
-
-# Troubleshooting
-
-If you're having issues getting the above steps to work, see the [Troubleshooting](https://reactnative.dev/docs/troubleshooting) page.
-
-# Learn More
-
-To learn more about React Native, take a look at the following resources:
-
-- [React Native Website](https://reactnative.dev) - learn more about React Native.
-- [Getting Started](https://reactnative.dev/docs/environment-setup) - an **overview** of React Native and how setup your environment.
-- [Learn the Basics](https://reactnative.dev/docs/getting-started) - a **guided tour** of the React Native **basics**.
-- [Blog](https://reactnative.dev/blog) - read the latest official React Native **Blog** posts.
-- [`@facebook/react-native`](https://github.com/facebook/react-native) - the Open Source; GitHub **repository** for React Native.
+<p align="center">
+  <strong>SentiVibe</strong> — Where Moods Meet Media
+</p>
