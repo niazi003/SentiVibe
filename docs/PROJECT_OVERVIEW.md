@@ -1,7 +1,14 @@
-# SentiVibe — Project Overview
+<p align="center">
+  <img src="media/logo.png" alt="SentiVibe logo" width="140" />
+</p>
 
-> **Where Moods Meet Media**  
-> An AI-powered mobile app that detects how you feel and recommends music, videos, and movies tailored to your mood.
+<h1 align="center">SentiVibe — Project Overview</h1>
+
+<p align="center"><strong>Where Moods Meet Media</strong></p>
+
+<p align="center">
+  An AI-powered mobile app that detects how you feel and recommends music, videos, and movies tailored to your mood.
+</p>
 
 ---
 
@@ -56,88 +63,35 @@ People often know they want to watch or listen to *something*, but not *what*. M
 
 ## Visual Showcase
 
-> **Add your screenshots and demo videos here** so visitors can see the app before reading technical details.  
-> See [How to Add Media](#how-to-add-screenshots--videos) at the bottom of this section.
+Screenshots of the SentiVibe app, organized in the order a user experiences them.
 
-### App Preview (replace placeholders with your assets)
+### 1. Onboarding & Welcome
 
-| Screen | Preview |
+| Onboarding Splash | Home Screen |
 |---|---|
-| Welcome / Splash | ![Welcome screen](media/screenshots/01-welcome.png) |
-| AI Chatbot | ![Chatbot screen](media/screenshots/02-chatbot.png) |
-| Mood Detection (Face / Voice) | ![Detection screen](media/screenshots/03-detection.png) |
-| Music Recommendations | ![Music results](media/screenshots/04-music-results.png) |
-| Movie Recommendations | ![Movie results](media/screenshots/05-movie-results.png) |
-| In-App Player | ![Player screen](media/screenshots/06-player.png) |
-| Onboarding | ![Onboarding](media/screenshots/07-onboarding.png) |
-| Profile & Settings | ![Profile](media/screenshots/08-profile.png) |
+| The branded splash screen shown on first launch. | Welcome screen with login, sign-up, and Spotify connection. |
+| ![Onboarding splash screen](media/screenshots/onboarding.png) | ![Welcome and login screen](media/screenshots/home-screen.png) |
 
-### Demo Video
+### 2. AI Chatbot & Mood Detection
 
-<!-- Option A: Link to hosted video (recommended for full demos) -->
-[![Watch the SentiVibe demo](media/screenshots/demo-thumbnail.png)](https://www.youtube.com/watch?v=YOUR_VIDEO_ID)
-
-*Click the thumbnail above to watch a full walkthrough on YouTube.*
-
-<!-- Option B: Short animated GIF (great for README / quick loops) -->
-<!-- ![SentiVibe demo GIF](media/gifs/app-demo.gif) -->
-
----
-
-### How to Add Screenshots & Videos
-
-#### Screenshots (recommended)
-
-1. **Capture** screenshots from an emulator, simulator, or physical device.
-   - Android: `adb exec-out screencap -p > screenshot.png`
-   - iOS Simulator: `Cmd + S` saves to Desktop
-   - Or use your device's built-in screenshot shortcut
-
-2. **Save** images into the repo at:
-   ```
-   docs/media/screenshots/
-   ```
-   Use clear, numbered names: `01-welcome.png`, `02-chatbot.png`, etc.
-
-3. **Reference** them in this file with relative Markdown:
-   ```markdown
-   ![Description](media/screenshots/01-welcome.png)
-   ```
-
-4. **Tips for GitHub**
-   - PNG or JPG works; PNG is sharper for UI
-   - Keep widths around 300–400 px for table layouts, or 800 px for full-width hero images
-   - Commit images to the repo — they render directly on GitHub with no external hosting
-
-#### Videos
-
-GitHub Markdown **does not embed hosted video files** the way it does images. Use one of these approaches:
-
-| Method | Best for | How |
+| Chatbot (Before Detection) | Voice Detection | Face Detection |
 |---|---|---|
-| **YouTube / Vimeo link** | Full app demos, presentations | Upload video, add a thumbnail image, link the thumbnail: `[![Demo](media/screenshots/demo-thumbnail.png)](https://youtube.com/watch?v=ID)` |
-| **Animated GIF** | Short 5–15 second UI loops | Record screen → convert to GIF (ScreenToGif, LICEcap) → save to `docs/media/gifs/` → `![Demo](media/gifs/app-demo.gif)` |
-| **GitHub issue / release asset** | Large MP4 files | Attach to a GitHub Release or Issue, copy the generated URL |
-| **`<video>` HTML tag** | Limited support | Works in some GitHub contexts but is unreliable in README; prefer GIF or external link |
+| The AI assistant greets the user and offers text, voice, or camera input. | "Speak to Vibe" — record a short voice message to detect mood. | "Face mood" — take a selfie or pick a photo for facial emotion analysis. |
+| ![Chatbot before mood detection](media/screenshots/chatbot-before-detection.png) | ![Speak to Vibe voice screen](media/screenshots/voice-emotion.png) | ![Face mood detection screen](media/screenshots/face-emotion.png) |
 
-**Recommended workflow for SentiVibe:**
+### 3. Mood Result & Recommendations
 
-1. Record a 1–3 minute screen capture showing: login → chatbot mood detection → music results → player → movie tab.
-2. Upload to YouTube (public or unlisted).
-3. Export a thumbnail frame to `docs/media/screenshots/demo-thumbnail.png`.
-4. Replace `YOUR_VIDEO_ID` in the [Demo Video](#demo-video) section above.
+| Emotion Detected | Music Recommendations | Movie Recommendations |
+|---|---|---|
+| After analysis, the chatbot confirms the mood and offers Music, Video, or Movie options. | Spotify-curated tracks matched to the detected mood (e.g. Happy). | Emotion-matched films with IMDb ratings, genres, and trailers. |
+| ![Chatbot after emotion detected](media/screenshots/emotion-detected-chatbot.png) | ![Music recommendations for Happy mood](media/screenshots/music-recommendations.png) | ![Movie recommendations for Happy mood](media/screenshots/movie-recommendations.png) |
 
-#### Optional: Pin media in your GitHub README
+### 4. Playback & Profile
 
-Add a short teaser at the top of `README.md`:
-
-```markdown
-## See It In Action
-
-![SentiVibe preview](docs/media/screenshots/01-welcome.png)
-
-[Full project documentation →](docs/PROJECT_OVERVIEW.md) | [Watch demo video →](https://youtube.com/watch?v=YOUR_VIDEO_ID)
-```
+| Music Player | Profile |
+|---|---|
+| Full-screen player with album art, progress bar, queue, shuffle, and repeat controls. | User profile with Spotify status, preferences, settings, and logout. |
+| ![In-app music player](media/screenshots/music-player.png) | ![User profile screen](media/screenshots/profile-screen.png) |
 
 ---
 
@@ -366,8 +320,8 @@ sentivibe/
 └── docs/
     ├── PROJECT_OVERVIEW.md      # This file
     └── media/
-        ├── screenshots/         # App screenshots (add yours here)
-        └── gifs/                # Short demo GIFs (optional)
+        ├── logo.png             # App logo
+        └── screenshots/         # App screenshots
 ```
 
 ---
@@ -623,7 +577,6 @@ npm run ios
 - [ ] Set up HTTPS on the backend
 - [ ] Configure Spotify redirect URIs for production
 - [ ] Pull and warm ML models on the emotion server before traffic
-- [ ] Add app screenshots to `docs/media/screenshots/`
 
 ---
 

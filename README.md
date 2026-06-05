@@ -1,13 +1,21 @@
-# SentiVibe
+<p align="center">
+  <img src="docs/media/logo.png" alt="SentiVibe logo" width="120" />
+</p>
 
-> **Where Moods Meet Media**
+<h1 align="center">SentiVibe</h1>
 
-An AI-powered mobile app that detects how you feel and recommends **music**, **music videos**, and **movies** tailored to your mood.
+<p align="center"><strong>Where Moods Meet Media</strong></p>
 
-[![React Native](https://img.shields.io/badge/React%20Native-0.83-61DAFB?logo=react&logoColor=white)](https://reactnative.dev)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.8-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
-[![Node.js](https://img.shields.io/badge/Node.js-20+-339933?logo=node.js&logoColor=white)](https://nodejs.org)
-[![Python](https://img.shields.io/badge/Python-AI%20%2B%20ML-3776AB?logo=python&logoColor=white)](https://www.python.org)
+<p align="center">
+  An AI-powered mobile app that detects how you feel and recommends <strong>music</strong>, <strong>music videos</strong>, and <strong>movies</strong> tailored to your mood.
+</p>
+
+<p align="center">
+  <a href="https://reactnative.dev"><img src="https://img.shields.io/badge/React%20Native-0.83-61DAFB?logo=react&logoColor=white" alt="React Native" /></a>
+  <a href="https://www.typescriptlang.org"><img src="https://img.shields.io/badge/TypeScript-5.8-3178C6?logo=typescript&logoColor=white" alt="TypeScript" /></a>
+  <a href="https://nodejs.org"><img src="https://img.shields.io/badge/Node.js-20+-339933?logo=node.js&logoColor=white" alt="Node.js" /></a>
+  <a href="https://www.python.org"><img src="https://img.shields.io/badge/Python-AI%20%2B%20ML-3776AB?logo=python&logoColor=white" alt="Python" /></a>
+</p>
 
 ---
 
@@ -28,20 +36,33 @@ SentiVibe turns your mood into media recommendations. Tell the app how you feel 
 
 ## Screenshots
 
-> Add your images to `docs/media/screenshots/` — they will appear here automatically once committed.
+### Onboarding & Welcome
 
-| Welcome | Chatbot | Results |
+| Onboarding | Home Screen |
+|:---:|:---:|
+| ![Onboarding splash screen](docs/media/screenshots/onboarding.png) | ![Welcome and login screen](docs/media/screenshots/home-screen.png) |
+
+### Mood Detection
+
+| AI Chatbot | Voice Detection | Face Detection |
 |:---:|:---:|:---:|
-| ![Welcome](docs/media/screenshots/01-welcome.png) | ![Chatbot](docs/media/screenshots/02-chatbot.png) | ![Results](docs/media/screenshots/04-music-results.png) |
+| ![Chatbot before mood detection](docs/media/screenshots/chatbot-before-detection.png) | ![Speak to Vibe voice screen](docs/media/screenshots/voice-emotion.png) | ![Face mood detection screen](docs/media/screenshots/face-emotion.png) |
 
-<!-- Optional demo video — replace YOUR_VIDEO_ID with your YouTube link -->
-<!-- [![Watch demo](docs/media/screenshots/demo-thumbnail.png)](https://www.youtube.com/watch?v=YOUR_VIDEO_ID) -->
+### Recommendations & Playback
+
+| Mood Detected | Music Results | Movie Results |
+|:---:|:---:|:---:|
+| ![Chatbot after emotion detected](docs/media/screenshots/emotion-detected-chatbot.png) | ![Music recommendations for Happy mood](docs/media/screenshots/music-recommendations.png) | ![Movie recommendations for Happy mood](docs/media/screenshots/movie-recommendations.png) |
+
+| Music Player | Profile |
+|:---:|:---:|
+| ![In-app music player](docs/media/screenshots/music-player.png) | ![User profile screen](docs/media/screenshots/profile-screen.png) |
 
 ---
 
 ## Full Documentation
 
-This README is the **GitHub landing page**. For the complete project guide — architecture, API reference, ML models, privacy, deployment, and media instructions — see:
+This README is the **GitHub landing page**. For the complete project guide — architecture, API reference, ML models, privacy, deployment, and more — see:
 
 **[docs/PROJECT_OVERVIEW.md](docs/PROJECT_OVERVIEW.md)**
 
@@ -115,7 +136,9 @@ sentivibe/
 ├── ios/              # iOS native project
 └── docs/
     ├── PROJECT_OVERVIEW.md   # Full documentation
-    └── media/screenshots/    # Add app screenshots here
+    └── media/
+        ├── logo.png          # App logo
+        └── screenshots/      # App screenshots
 ```
 
 ---
@@ -142,5 +165,6 @@ See [docs/PROJECT_OVERVIEW.md#contributing](docs/PROJECT_OVERVIEW.md#contributin
 ---
 
 <p align="center">
+  <img src="docs/media/logo.png" alt="SentiVibe logo" width="64" /><br>
   <strong>SentiVibe</strong> — Where Moods Meet Media
 </p>
