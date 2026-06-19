@@ -2,16 +2,36 @@
   "dya0byb9dctyv728ij7nmsvvp": {
     "genres": [],
     "favoriteArtists": [],
-    "energyPreference": {
-      "sad": "low",
-      "angry": "high",
-      "calm": "low"
-    },
+    "energyPreference": {},
     "languagePreference": "no preference",
     "decadePreference": "no preference",
     "onboardingComplete": true,
-    "updatedAt": "2026-06-05T18:49:29.688Z",
+    "updatedAt": "2026-06-19T14:40:16.521Z",
     "movieGenres": [],
     "movieNightVibe": "no preference"
+  },
+  "31ee3p2zg7blaahdcpwipas55zca": {
+    "genres": [
+      "urdu/hindi",
+      "punjabi/desi"
+    ],
+    "favoriteArtists": [
+      "Arijit Singh",
+      "Atif Aslam",
+      "Murtaza"
+    ],
+    "energyPreference": {
+      "sad": "low",
+      "angry": "low",
+      "calm": "low"
+    },
+    "languagePreference": "urdu+hindi",
+    "decadePreference": "no preference",
+    "movieGenres": [
+      "comedy"
+    ],
+    "movieNightVibe": "comedy",
+    "onboardingComplete": true,
+    "updatedAt": "2026-06-06T05:37:56.231Z"
   }
 }

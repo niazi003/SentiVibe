@@ -231,6 +231,10 @@ export interface TextDetectionResponse {
 
 export interface FaceDetectionResponse {
   emotion: string;
+  confidence?: number;
+  // Face-guard error fields (HTTP 422 — returned as resolved value, not a throw)
+  error?: 'no_face_detected' | 'multiple_faces_detected' | string;
+  message?: string;
 }
 
 
@@ -269,7 +273,14 @@ export async function detectTextEmotion(text: string): Promise<TextDetectionResp
 
 /**
  * Detect emotion from a face image (base64 encoded).
- * Routes through Node.js → Python Emotion Service (ViT face model).
+ * Routes through Node.js → Python Emotion Service (DeepFace CNN).
+ *
+ * Structured error bodies are returned as resolved values (not thrown) so
+ * callers can display specific, contextual alerts:
+ *   422 → face-guard rejection (no face / multiple faces / non-human)
+ *   503 → emotion service is not running
+ *   504 → request timed out
+ * All other non-ok statuses throw.
  */
 export async function detectFaceEmotion(imageBase64: string): Promise<FaceDetectionResponse> {
   const controller = new AbortController();
@@ -284,6 +295,13 @@ export async function detectFaceEmotion(imageBase64: string): Promise<FaceDetect
     });
 
     clearTimeout(timeoutId);
+
+    // Pass structured error bodies back as resolved values so the caller
+    // can show the right contextual alert without string-parsing.
+    if (response.status === 422 || response.status === 503 || response.status === 504) {
+      const errorData = await response.json().catch(() => ({}));
+      return errorData as FaceDetectionResponse;
+    }
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));

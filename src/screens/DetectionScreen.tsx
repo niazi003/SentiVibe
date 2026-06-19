@@ -82,16 +82,197 @@ export const DetectionScreen: React.FC = () => {
         [navigation]
     );
 
+    // ── Centralised error classifier ──────────────────────────────────────
+    // Maps any face-detection result or thrown error to a specific, actionable
+    // alert. Returns true if the error is "retryable" (stay on pick screen),
+    // false if it is a hard failure that should route to EmotionError.
+    const handleFaceError = useCallback(
+        (errorCode: string | undefined, rawMessage: string | undefined): boolean => {
+            setPhase('pick');
+            setProgress(0);
+
+            switch (errorCode) {
+                // ── Face-guard rejections (HTTP 422 from Python) ──────────
+                case 'no_face_detected':
+                    Alert.alert(
+                        '😶 No face found',
+                        'We couldn\'t detect a human face in that photo.\n\n'
+                        + 'Things to check:\n'
+                        + '  • Your face should fill most of the frame\n'
+                        + '  • Make sure the photo is well-lit\n'
+                        + '  • Remove sunglasses, masks, or heavy filters\n'
+                        + '  • Animals and objects won\'t work here',
+                        [{ text: 'Try a different photo', style: 'default' }]
+                    );
+                    return true; // retryable
+
+                case 'multiple_faces_detected':
+                    Alert.alert(
+                        '👥 Multiple faces detected',
+                        'SentiVibe reads emotion from a single person.\n\n'
+                        + 'Please use a photo where only your face is visible — crop out other people and try again.',
+                        [{ text: 'Try a different photo', style: 'default' }]
+                    );
+                    return true; // retryable
+
+                // ── Gateway-level errors (HTTP 504 / 503 / 502 from Node.js) ──
+                case 'face_detection_timeout':
+                    Alert.alert(
+                        '⏱️ Analysis timed out',
+                        'The AI model took too long to respond. This usually happens on the first request while the model is warming up.\n\nWait a few seconds and try again.',
+                        [{ text: 'Try again' }]
+                    );
+                    return true; // retryable
+
+                case 'emotion_service_unavailable':
+                    Alert.alert(
+                        '🔌 Emotion service is offline',
+                        'The Python emotion server isn\'t running.\n\nPlease start it with:\n  python emotion_server.py\n\nThen try again.',
+                        [{ text: 'OK' }]
+                    );
+                    return false; // fatal
+
+                case 'face_detection_failed':
+                    Alert.alert(
+                        '⚠️ Detection failed',
+                        rawMessage
+                            ? `The server reported:\n"${rawMessage}"\n\nPlease try again.`
+                            : 'An unexpected error occurred during face detection. Please try again.',
+                        [{ text: 'OK' }]
+                    );
+                    return false; // treat as fatal
+
+                default: {
+                    // Last resort: classify by message content for thrown JS errors
+                    // (network failures, AbortError, etc. that don't have an error code).
+                    const msg = (rawMessage ?? '').toLowerCase();
+
+                    if (msg.includes('timed out') || msg.includes('timeout') || msg.includes('aborted')) {
+                        Alert.alert(
+                            '⏱️ Analysis timed out',
+                            'The server took too long to respond. This usually happens when the AI model is still warming up.\n\nWait a few seconds and try again.',
+                            [{ text: 'OK' }]
+                        );
+                        return true;
+                    }
+
+                    if (msg.includes('network') || msg.includes('fetch') || msg.includes('connection') || msg.includes('econnrefused') || msg.includes('not running')) {
+                        Alert.alert(
+                            '📡 Can\'t reach the server',
+                            'Check that:\n'
+                            + '  • Your phone and PC are on the same Wi-Fi\n'
+                            + '  • The Python emotion server is running\n'
+                            + '  • ngrok / the tunnel URL is up to date',
+                            [{ text: 'OK' }]
+                        );
+                        return false;
+                    }
+
+                    if (msg.includes('decode') || msg.includes('400')) {
+                        Alert.alert(
+                            '🖼️ Could not read image',
+                            'The photo format wasn\'t recognised. Try taking a fresh selfie with the camera instead of choosing from gallery.',
+                            [{ text: 'OK' }]
+                        );
+                        return true;
+                    }
+
+                    Alert.alert(
+                        '⚠️ Something went wrong',
+                        rawMessage
+                            ? `The server said:\n"${rawMessage}"\n\nPlease try again.`
+                            : 'An unexpected error occurred. Please try again.',
+                        [{ text: 'OK' }]
+                    );
+                    return false;
+                }
+            }
+        },
+        []
+    );
+
+    const handleVoiceError = useCallback(
+        (rawMessage: string | undefined): boolean => {
+            setPhase('pick');
+            setProgress(0);
+            setIsRecording(false);
+
+            const msg = (rawMessage ?? '').toLowerCase();
+
+            if (msg.includes('timed out') || msg.includes('timeout') || msg.includes('aborted')) {
+                Alert.alert(
+                    '⏱️ Transcription timed out',
+                    'The server took too long to process your recording.\n\nTry recording a shorter clip (5–15 seconds work best).',
+                    [{ text: 'OK' }]
+                );
+                return true;
+            }
+
+            if (msg.includes('network') || msg.includes('fetch') || msg.includes('connection') || msg.includes('econnrefused')) {
+                Alert.alert(
+                    '📡 Can\'t reach the server',
+                    'Check that the Python emotion server is running and your device is on the same network.',
+                    [{ text: 'OK' }]
+                );
+                return false;
+            }
+
+            if (msg.includes('speech') || msg.includes('audio') || msg.includes('empty') || msg.includes('silent')) {
+                Alert.alert(
+                    '🎙️ No speech detected',
+                    'We couldn\'t hear anything in the recording.\n\nSpeak clearly and hold the phone closer. Background noise can also affect results.',
+                    [{ text: 'Try again', style: 'default' }]
+                );
+                return true;
+            }
+
+            Alert.alert(
+                '⚠️ Voice analysis failed',
+                rawMessage
+                    ? `The server said:\n"${rawMessage}"\n\nPlease try again.`
+                    : 'An unexpected error occurred. Please try again.',
+                [{ text: 'OK' }]
+            );
+            return false;
+        },
+        []
+    );
+    // ─────────────────────────────────────────────────────────────────────
+
     const runFacePipeline = useCallback(
         async (imageBase64: string) => {
             setPhase('analyzing');
             setStatus('Analyzing facial expression...');
             setProgress(35);
-            const result = await detectFaceEmotion(imageBase64);
-            setProgress(100);
-            goToChatWithEmotion(result.emotion);
+            try {
+                const result = await detectFaceEmotion(imageBase64);
+                setProgress(100);
+
+                // HTTP 422 face-guard errors are returned as resolved values (not thrown).
+                if (result.error === 'no_face_detected') {
+                    handleFaceError('no_face_detected', result.message);
+                    return;
+                }
+                if (result.error === 'multiple_faces_detected') {
+                    handleFaceError('multiple_faces_detected', result.message);
+                    return;
+                }
+                if (result.error) {
+                    // Any other structured error from the face guard
+                    handleFaceError(result.error, result.message);
+                    return;
+                }
+
+                goToChatWithEmotion(result.emotion);
+            } catch (e) {
+                // Network / timeout / server crash — classify and decide if fatal
+                const isFatal = !handleFaceError(undefined, (e as Error).message);
+                if (isFatal) {
+                    navigation.navigate('EmotionError');
+                }
+            }
         },
-        [goToChatWithEmotion]
+        [goToChatWithEmotion, handleFaceError, navigation]
     );
 
     const runVoicePipeline = useCallback(
@@ -99,48 +280,68 @@ export const DetectionScreen: React.FC = () => {
             setPhase('analyzing');
             setStatus('Transcribing your voice...');
             setProgress(30);
-            const uri = toFileUri(localPath);
-            const { fileName, mimeType } = guessVoiceUploadMeta(localPath);
-            const result = await transcribeVoice(uri, fileName, mimeType);
-            setProgress(100);
-            // Navigate to Chatbot with the transcript so it goes straight into the AI chat
-            navigation.navigate('Chatbot', { voiceTranscript: result.transcript });
+            try {
+                const uri = toFileUri(localPath);
+                const { fileName, mimeType } = guessVoiceUploadMeta(localPath);
+                const result = await transcribeVoice(uri, fileName, mimeType);
+                setProgress(100);
+                navigation.navigate('Chatbot', { voiceTranscript: result.transcript });
+            } catch (e) {
+                const isFatal = !handleVoiceError((e as Error).message);
+                if (isFatal) {
+                    navigation.navigate('EmotionError');
+                }
+            }
         },
-        [navigation]
+        [handleVoiceError, navigation]
     );
 
     const onTakePhoto = useCallback(async () => {
         try {
             const b64 = await captureFaceFromCamera();
-            if (!b64) {
-                return;
-            }
+            if (!b64) return; // user cancelled
             await runFacePipeline(b64);
         } catch (e) {
-            console.error('[Detection] face camera:', e);
-            Alert.alert('Face detection failed', (e as Error).message || 'Please try again.');
-            navigation.navigate('EmotionError');
+            // Camera permission denied or hardware error — runFacePipeline has already
+            // handled AI errors internally; this catch only fires for camera-level failures.
+            console.error('[Detection] camera open failed:', e);
+            setPhase('pick');
+            setProgress(0);
+            Alert.alert(
+                '📷 Camera unavailable',
+                'Could not open the camera. Make sure SentiVibe has camera permission in your device settings.',
+                [{ text: 'OK' }]
+            );
         }
-    }, [navigation, runFacePipeline]);
+    }, [runFacePipeline]);
 
     const onPickGallery = useCallback(async () => {
         try {
             const b64 = await pickFaceFromLibrary();
-            if (!b64) {
-                return;
-            }
+            if (!b64) return; // user cancelled
             await runFacePipeline(b64);
         } catch (e) {
-            console.error('[Detection] face gallery:', e);
-            Alert.alert('Face detection failed', (e as Error).message || 'Please try again.');
-            navigation.navigate('EmotionError');
+            // Gallery permission denied or file read error
+            console.error('[Detection] gallery pick failed:', e);
+            setPhase('pick');
+            setProgress(0);
+            Alert.alert(
+                '🖼️ Gallery unavailable',
+                'Could not read the selected photo. Make sure SentiVibe has photo library permission, or try taking a selfie instead.',
+                [{ text: 'OK' }]
+            );
         }
-    }, [navigation, runFacePipeline]);
+    }, [runFacePipeline]);
 
     const onToggleVoiceRecord = useCallback(async () => {
         if (!isRecording) {
             const ok = await ensureAndroidMicPermission();
             if (!ok) {
+                Alert.alert(
+                    '🎙️ Microphone permission required',
+                    'SentiVibe needs microphone access to analyse your voice.\n\nGo to Settings → Apps → SentiVibe → Permissions and enable Microphone.',
+                    [{ text: 'OK' }]
+                );
                 return;
             }
             try {
@@ -148,7 +349,11 @@ export const DetectionScreen: React.FC = () => {
                 setIsRecording(true);
             } catch (e) {
                 console.error('[Detection] record start:', e);
-                Alert.alert('Recording failed', (e as Error).message || 'Could not start microphone.');
+                Alert.alert(
+                    '🎙️ Could not start recording',
+                    'Another app may be using the microphone, or the recording service failed to initialise. Close other apps and try again.',
+                    [{ text: 'OK' }]
+                );
             }
             return;
         }
@@ -157,16 +362,19 @@ export const DetectionScreen: React.FC = () => {
         try {
             const path = await stopVoiceRecording();
             if (!path?.trim()) {
-                Alert.alert('No audio captured', 'Record for at least a second, then tap stop again.');
+                Alert.alert(
+                    '🎙️ No audio captured',
+                    'The recording was too short or empty. Tap record, speak for at least 2–3 seconds, then tap stop.',
+                    [{ text: 'Try again', style: 'default' }]
+                );
                 return;
             }
             await runVoicePipeline(path);
         } catch (e) {
-            console.error('[Detection] voice:', e);
-            Alert.alert('Voice detection failed', (e as Error).message || 'Please try again.');
-            navigation.navigate('EmotionError');
+            console.error('[Detection] stop/upload voice:', e);
+            handleVoiceError((e as Error).message);
         }
-    }, [isRecording, navigation, runVoicePipeline]);
+    }, [handleVoiceError, isRecording, runVoicePipeline]);
 
     const spin = spinValue.interpolate({
         inputRange: [0, 1],

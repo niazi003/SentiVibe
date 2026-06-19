@@ -11,7 +11,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { authorize, refresh, AuthConfiguration } from 'react-native-app-auth';
 
-const SPOTIFY_CLIENT_ID = '6b005eaa189c4461ae998d179c570be7';
+const SPOTIFY_CLIENT_ID = '711395546eb740c8a16faba38bad3af5';
 const SPOTIFY_REDIRECT_URI = 'sentivibe://spotify-callback';
 
 const SPOTIFY_SCOPES = [

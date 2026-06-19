@@ -77,7 +77,10 @@ async function detectTextEmotion(text) {
 /**
  * Detect emotion from a face image (base64 encoded).
  * @param {string} imageBase64 - base64 encoded image
- * @returns {Promise<{ emotion: string }>}
+ * @returns {Promise<{ emotion: string } | { error: string, message: string }>}
+ *   On success: { emotion, confidence }
+ *   On face-guard rejection (HTTP 422): { error: 'no_face_detected'|'multiple_faces_detected', message: string }
+ *   On hard failure: throws
  */
 async function detectFaceEmotion(imageBase64) {
   try {
@@ -86,13 +89,24 @@ async function detectFaceEmotion(imageBase64) {
       { image: imageBase64 },
       // 120 s — DeepFace downloads its CNN weights on the first call (~40-90 s).
       // Subsequent calls are fast once the weights are cached on disk.
-      { timeout: 120_000, headers: { 'Content-Type': 'application/json' } }
+      // validateStatus: accept 422 so axios does NOT throw for face-guard rejections.
+      {
+        timeout: 120_000,
+        headers: { 'Content-Type': 'application/json' },
+        validateStatus: (status) => status === 200 || status === 422,
+      }
     );
-    return response.data;
+    // Return the body for both 200 (emotion result) and 422 (face-guard error).
+    // The controller will forward the correct status code to the app.
+    return { status: response.status, data: response.data };
   } catch (err) {
     if (err.code === 'ECONNREFUSED') {
       throw new Error('Emotion detection service is not running. Start it with: python emotion_server.py');
     }
+    if (err.code === 'ECONNABORTED' || (err.message || '').includes('timeout')) {
+      throw new Error('Face detection timed out. The model may still be loading — please try again in a few seconds.');
+    }
+    // Surface any other Python-level message.
     const pyError = err.response?.data?.error || err.response?.data?.message;
     if (pyError) throw new Error(pyError);
     throw err;

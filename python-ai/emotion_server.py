@@ -280,6 +280,75 @@ def detect_text():
         return jsonify({"error": str(e)}), 500
 
 
+# Load Haar Cascade once at module level — it's a tiny XML file bundled with OpenCV, no extra download.
+_FACE_CASCADE = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
+
+
+def _count_faces(img_bgr: np.ndarray) -> int:
+    """
+    Two-pass Haar Cascade face counter.
+
+    A single set of parameters cannot reliably serve two opposite goals:
+      - Catching multiple small faces in group photos (needs to be LENIENT)
+      - Avoiding false positives on single-face selfies (needs to be STRICT)
+
+    Pass 1 — LENIENT (minNeighbors=3, minSize=30): used only for counting.
+      - Detects small faces in group photos; may have occasional false positives.
+      - If it finds 2+ faces, we can be confident there really are multiple people.
+
+    Pass 2 — STRICT (minNeighbors=8, minSize=90): used only to CONFIRM 1 real face.
+      - High threshold, face must be large and well-lit to pass.
+      - Eliminates false positives from shadows, patterns, background.
+
+    Decision table:
+      lenient >= 2              → multiple faces (reject)
+      strict == 1               → single confirmed face (proceed)
+      lenient == 1, strict == 0 → probable face at angle/dim light (proceed)
+      both == 0                 → no face / animal (reject)
+    """
+    gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
+
+    # Pass 1: lenient — catches small faces in groups
+    lenient = _FACE_CASCADE.detectMultiScale(
+        gray,
+        scaleFactor=1.05,
+        minNeighbors=3,
+        minSize=(30, 30),
+    )
+    lenient_count = len(lenient) if isinstance(lenient, np.ndarray) else 0
+
+    # Pass 2: strict — confirms a single real frontal face
+    strict = _FACE_CASCADE.detectMultiScale(
+        gray,
+        scaleFactor=1.1,
+        minNeighbors=8,
+        minSize=(90, 90),
+    )
+    strict_count = len(strict) if isinstance(strict, np.ndarray) else 0
+
+    print(
+        f"[FaceGuard] {img_bgr.shape[1]}x{img_bgr.shape[0]} "
+        f"→ lenient={lenient_count}, strict={strict_count}"
+    )
+
+    if strict_count == 1:
+        # One confirmed frontal face — proceed regardless of lenient noise.
+        return 1
+
+    if strict_count >= 2:
+        # Strict found multiple large faces — definitely a group.
+        return strict_count
+
+    if lenient_count >= 3:
+        # strict found 0 but lenient found 3+ — multiple smaller faces
+        # that are too small/angled for strict but real enough for lenient.
+        return lenient_count
+
+    # strict found 0 faces and lenient found fewer than 3.
+    # Likely an object, pattern, or shadow — not a real human face.
+    return 0
+
+
 @app.route("/detect-face", methods=["POST"])
 def detect_face():
     try:
@@ -292,7 +361,24 @@ def detect_face():
         if img is None:
             return jsonify({"error": "Could not decode image."}), 400
 
-        # enforce_detection=False so partial/angled faces still get a result.
+        # ── Face validation guard (Haar Cascade, ~10ms, CPU-only) ──────────
+        face_count = _count_faces(img)
+
+        if face_count == 0:
+            return jsonify({
+                "error": "no_face_detected",
+                "message": "No human face detected. Please use a clear, well-lit photo with your face visible.",
+            }), 422
+
+        if face_count > 1:
+            return jsonify({
+                "error": "multiple_faces_detected",
+                "message": f"{face_count} faces detected. Please use a photo with only one person.",
+            }), 422
+        # ── Exactly 1 human face — proceed to CNN emotion analysis ─────────
+
+        # enforce_detection=False: face already confirmed above; this lets DeepFace
+        # handle slight angles/lighting without raising its own DetectorError.
         # silent=True suppresses DeepFace console spam.
         analysis = DeepFace.analyze(
             img,
@@ -300,11 +386,12 @@ def detect_face():
             enforce_detection=False,
             silent=True,
         )
-        emotions  = analysis[0]["emotion"]            # dict of emotion → % score (numpy.float32)
-        dominant  = analysis[0]["dominant_emotion"]   # string
+        emotions   = analysis[0]["emotion"]          # dict of emotion → % score (numpy.float32)
+        dominant   = analysis[0]["dominant_emotion"] # string
         # Explicit float() cast — DeepFace returns numpy.float32 which Flask cannot JSON-serialize.
         confidence = round(float(emotions[dominant]) / 100.0, 4)
         return jsonify({"emotion": dominant.lower(), "confidence": confidence})
+
     except Exception as e:
         import traceback
         traceback.print_exc()

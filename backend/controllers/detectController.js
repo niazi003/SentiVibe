@@ -42,12 +42,36 @@ async function handleDetectFace(req, res) {
 
   try {
     const result = await aiClient.detectFaceEmotion(image);
+
+    // ai_client now returns { status, data } so we can forward 422 face-guard
+    // rejections to the app with the correct status code and full error body.
+    if (result && result.status !== undefined) {
+      return res.status(result.status).json(result.data);
+    }
+
+    // Fallback for any older call shape
     return res.json(result);
   } catch (err) {
     console.error('[detectController] Face detection error:', err.message);
+
+    // Specific timeout message so the frontend can show a contextual alert
+    if ((err.message || '').toLowerCase().includes('timed out')) {
+      return res.status(504).json({
+        error: 'face_detection_timeout',
+        message: err.message,
+      });
+    }
+    // Server / connection down
+    if ((err.message || '').toLowerCase().includes('not running') || err.code === 'ECONNREFUSED') {
+      return res.status(503).json({
+        error: 'emotion_service_unavailable',
+        message: 'The emotion detection service is not running. Please start the Python server.',
+      });
+    }
+
     return res.status(502).json({
-      error: 'Emotion detection service unavailable',
-      message: err.message,
+      error: 'face_detection_failed',
+      message: err.message || 'An unexpected error occurred during face detection.',
     });
   }
 }
