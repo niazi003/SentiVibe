@@ -56,7 +56,6 @@ export const PlayerScreen: React.FC = () => {
     const navigation = useNavigation<NavigationProp>();
     const { toggleFavorite, isFavorite, userData } = useContext(AppContext);
     const playerRef = useRef<YouTubePlayerRef>(null);
-    const [trackFeedback, setTrackFeedback] = useState<'like' | 'dislike' | null>(null);
 
     // All playback state comes from the global PlayerContext
     const {
@@ -121,30 +120,17 @@ export const PlayerScreen: React.FC = () => {
     }, [isPlaying, pulseAnim]);
 
     /**
-     * Guard: If music is playing, prompt user to pause before switching to Video mode.
+     * Seamlessly switch from Music to Video mode.
+     * Silently pauses Spotify so YouTube can take over — no alert needed.
+     * isPlaying stays true so the YouTube player auto-plays.
      */
-    const handleSwitchToVideo = useCallback(() => {
-        if (isPlaying && !isVideoMode) {
-            Alert.alert(
-                '⏸  Pause Audio First',
-                'Music is currently playing. Would you like to pause it and switch to Video mode?',
-                [
-                    { text: 'Cancel', style: 'cancel' },
-                    {
-                        text: 'Pause & Switch',
-                        style: 'default',
-                        onPress: async () => {
-                            await pausePlayback();
-                            pause();
-                            setVideoMode(true);
-                        },
-                    },
-                ]
-            );
-        } else {
+    const handleSwitchToVideo = useCallback(async () => {
+        if (!isVideoMode) {
+            // Silently pause Spotify before switching to YouTube
+            await pausePlayback().catch(() => {});
             setVideoMode(true);
         }
-    }, [isPlaying, isVideoMode, pause, setVideoMode]);
+    }, [isVideoMode, setVideoMode]);
 
     /**
      * Guard: If music is playing, prompt user to pause before navigating back.
@@ -381,35 +367,12 @@ export const PlayerScreen: React.FC = () => {
     }, [isVideoMode, previous, history.length]);
 
     /**
-     * Handle track feedback (like/dislike) — sends to backend
-     */
-    const handleFeedback = useCallback(async (action: 'like' | 'dislike') => {
-        if (!currentTrack) return;
-        const newAction = trackFeedback === action ? null : action;
-        setTrackFeedback(newAction);
-
-        if (newAction) {
-            const userId = userData?.email || userData?.name || 'default_user';
-            await sendFeedback({
-                userId,
-                trackId: currentTrack.spotifyId || String(currentTrack.id),
-                action: newAction,
-            });
-        }
-    }, [currentTrack, trackFeedback, userData]);
-
-    // Reset feedback state when track changes
-    useEffect(() => {
-        setTrackFeedback(null);
-    }, [currentTrack?.id]);
-
-    /**
      * Handle YouTube player state changes — sync with PlayerContext
      */
     const handleStateChange = useCallback((state: string) => {
         if (state === 'ended') {
-            // Send skip feedback for tracks user didn't explicitly like
-            if (!trackFeedback) {
+            // Send skip feedback for tracks user didn't explicitly favorited
+            if (!currentTrack || !isFavorite(currentTrack.id)) {
                 const userId = userData?.email || userData?.name || 'default_user';
                 sendFeedback({
                     userId,
@@ -433,7 +396,7 @@ export const PlayerScreen: React.FC = () => {
             advanceCooldownUntilRef.current = Date.now() + TRACK_END_COOLDOWN_MS;
             onTrackEnded();
         }
-    }, [onTrackEnded, replayCurrent, resume, repeatMode, trackFeedback, currentTrack, userData]);
+    }, [onTrackEnded, replayCurrent, resume, repeatMode, isFavorite, currentTrack, userData]);
 
     /**
      * Handle progress updates from YouTube player
@@ -488,18 +451,7 @@ export const PlayerScreen: React.FC = () => {
                     </View>
                 </View>
 
-                <View style={styles.headerRight}>
-                    <TouchableOpacity
-                        style={styles.headerBtn}
-                        onPress={() => toggleFavorite(currentTrack)}
-                    >
-                        <Icon
-                            name="heart"
-                            size={24}
-                            color={isFavorite(currentTrack.id) ? "#EF4444" : "#FFFFFF"}
-                        />
-                    </TouchableOpacity>
-                </View>
+                <View style={styles.headerRight} />
             </View>
 
             <ScrollView
@@ -563,16 +515,14 @@ export const PlayerScreen: React.FC = () => {
                     </View>
                     <View style={styles.feedbackBtns}>
                         <TouchableOpacity
-                            style={[styles.feedbackBtn, trackFeedback === 'like' && styles.feedbackBtnActive]}
-                            onPress={() => handleFeedback('like')}
+                            style={[styles.feedbackBtn, isFavorite(currentTrack.id) && styles.feedbackBtnActive]}
+                            onPress={() => toggleFavorite(currentTrack)}
                         >
-                            <Icon name="thumbs-up" size={20} color={trackFeedback === 'like' ? '#FFFFFF' : '#60A5FA'} />
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                            style={[styles.feedbackBtnDanger, trackFeedback === 'dislike' && styles.feedbackBtnDangerActive]}
-                            onPress={() => handleFeedback('dislike')}
-                        >
-                            <Icon name="thumbs-down" size={20} color={trackFeedback === 'dislike' ? '#FFFFFF' : '#EF4444'} />
+                            <Icon
+                                name="heart"
+                                size={20}
+                                color={isFavorite(currentTrack.id) ? "#FFFFFF" : "#60A5FA"}
+                            />
                         </TouchableOpacity>
                     </View>
                 </View>
@@ -616,24 +566,27 @@ export const PlayerScreen: React.FC = () => {
                     >
                         <Icon name="skip-back" size={32} color={canGoPrevious ? '#FFFFFF' : '#475569'} />
                     </TouchableOpacity>
-                    <Animated.View style={{ transform: [{ translateY: pulseAnim }] }}>
-                        <TouchableOpacity
-                            style={styles.mainPlayBtn}
-                            onPress={handleTogglePlay}
-                        >
-                            <LinearGradient
-                                colors={isPlaying ? ['#EF4444', '#DC2626'] : ['#2563EB', '#4F46E5']}
-                                style={styles.mainPlayBtnGradient}
+                    {/* Hide play/pause in video mode — YouTube iframe has native controls */}
+                    {!isVideoMode && (
+                        <Animated.View style={{ transform: [{ translateY: pulseAnim }] }}>
+                            <TouchableOpacity
+                                style={styles.mainPlayBtn}
+                                onPress={handleTogglePlay}
                             >
-                                <Icon
-                                    name={isPlaying ? 'pause' : 'play'}
-                                    size={32}
-                                    color="#FFFFFF"
-                                    style={!isPlaying ? { marginLeft: 4 } : undefined}
-                                />
-                            </LinearGradient>
-                        </TouchableOpacity>
-                    </Animated.View>
+                                <LinearGradient
+                                    colors={isPlaying ? ['#EF4444', '#DC2626'] : ['#2563EB', '#4F46E5']}
+                                    style={styles.mainPlayBtnGradient}
+                                >
+                                    <Icon
+                                        name={isPlaying ? 'pause' : 'play'}
+                                        size={32}
+                                        color="#FFFFFF"
+                                        style={!isPlaying ? { marginLeft: 4 } : undefined}
+                                    />
+                                </LinearGradient>
+                            </TouchableOpacity>
+                        </Animated.View>
+                    )}
                     <TouchableOpacity
                         onPress={handleNext}
                         disabled={!canGoNext}
