@@ -1,9 +1,10 @@
-import React, { useContext } from 'react';
+import React, { useContext, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, CommonActions } from '@react-navigation/native';
 import Icon from 'react-native-vector-icons/Feather';
 import { GlassCard, Button } from '../components';
+import { HelpSupportModal } from '../components/HelpSupportModal';
 import { NavigationProp } from '../types';
 import { AppContext } from '../context/AppContext';
 import { useSpotify } from '../context/SpotifyContext';
@@ -13,6 +14,7 @@ export const SettingsScreen: React.FC = () => {
     const navigation = useNavigation<NavigationProp>();
     const { resetChat } = useContext(AppContext);
     const { isAuthed, isConnecting, connect, disconnect } = useSpotify();
+    const [helpVisible, setHelpVisible] = useState(false);
 
     const handleLogout = () => {
         resetChat();
@@ -70,17 +72,10 @@ export const SettingsScreen: React.FC = () => {
                 </GlassCard>
 
                 <GlassCard style={styles.settingsCard}>
-                    <TouchableOpacity style={styles.settingsItem}>
-                        <View style={styles.settingsLeft}>
-                            <Icon name="shield" size={20} color="#60A5FA" style={ICON_STYLE} />
-                            <Text style={styles.settingsText}>Privacy Policy</Text>
-                        </View>
-                        <Icon name="chevron-right" size={16} color="#64748B" />
-                    </TouchableOpacity>
-
-                    <View style={styles.divider} />
-
-                    <TouchableOpacity style={styles.settingsItem}>
+                    <TouchableOpacity
+                        style={styles.settingsItem}
+                        onPress={() => setHelpVisible(true)}
+                    >
                         <View style={styles.settingsLeft}>
                             <Icon name="help-circle" size={20} color="#60A5FA" style={ICON_STYLE} />
                             <Text style={styles.settingsText}>Help & Support</Text>
@@ -117,6 +112,11 @@ export const SettingsScreen: React.FC = () => {
                     <Icon name="log-out" size={18} color="#EF4444" /> Log Out
                 </Button>
             </View>
+
+            <HelpSupportModal
+                visible={helpVisible}
+                onClose={() => setHelpVisible(false)}
+            />
         </SafeAreaView>
     );
 };
